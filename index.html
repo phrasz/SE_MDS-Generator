@@ -256,10 +256,6 @@
             flex-wrap: wrap;
             justify-content: flex-end;
         }
-        
-        .toolbar-row-2 {
-            justify-content: flex-start;
-        }
 
         .canvas-container {
             flex: 1;
@@ -2519,10 +2515,16 @@
         }
         
         function toggleMobileMode() {
+            if (!isMobileMoveMode) return;
+            
             // Toggle between rooms and outlines
             mobileSelectionMode = mobileSelectionMode === 'rooms' ? 'outlines' : 'rooms';
             const btn = document.getElementById('mobileToggleMode');
             btn.textContent = mobileSelectionMode === 'rooms' ? '📦 Rooms' : '🔷 Outlines';
+            
+            // Clear dragged indices
+            draggedRoomIndex = -1;
+            draggedOutlineIndex = -1;
             
             // Select first item in new mode
             if (mobileSelectionMode === 'rooms') {
@@ -2530,11 +2532,15 @@
                 if (rooms.length > 0) {
                     selectedRoomIndex = 0;
                     selectedOutlineIndex = -1;
+                } else {
+                    selectedRoomIndex = -1;
                 }
             } else {
                 if (config.manual_outlines && config.manual_outlines.length > 0) {
                     selectedOutlineIndex = 0;
                     selectedRoomIndex = -1;
+                } else {
+                    selectedOutlineIndex = -1;
                 }
             }
             renderRoomList();
@@ -2543,15 +2549,19 @@
         }
         
         function cycleMobilePrev() {
+            if (!isMobileMoveMode) return;
+            
             if (mobileSelectionMode === 'rooms') {
                 const rooms = getCurrentDeck().rooms;
                 if (rooms.length === 0) return;
                 selectedRoomIndex = selectedRoomIndex <= 0 ? rooms.length - 1 : selectedRoomIndex - 1;
                 selectedOutlineIndex = -1;
+                draggedOutlineIndex = -1;
             } else {
                 if (!config.manual_outlines || config.manual_outlines.length === 0) return;
                 selectedOutlineIndex = selectedOutlineIndex <= 0 ? config.manual_outlines.length - 1 : selectedOutlineIndex - 1;
                 selectedRoomIndex = -1;
+                draggedRoomIndex = -1;
             }
             renderRoomList();
             renderOutlineList();
@@ -2559,15 +2569,19 @@
         }
         
         function cycleMobileNext() {
+            if (!isMobileMoveMode) return;
+            
             if (mobileSelectionMode === 'rooms') {
                 const rooms = getCurrentDeck().rooms;
                 if (rooms.length === 0) return;
                 selectedRoomIndex = selectedRoomIndex >= rooms.length - 1 ? 0 : selectedRoomIndex + 1;
                 selectedOutlineIndex = -1;
+                draggedOutlineIndex = -1;
             } else {
                 if (!config.manual_outlines || config.manual_outlines.length === 0) return;
                 selectedOutlineIndex = selectedOutlineIndex >= config.manual_outlines.length - 1 ? 0 : selectedOutlineIndex + 1;
                 selectedRoomIndex = -1;
+                draggedRoomIndex = -1;
             }
             renderRoomList();
             renderOutlineList();
@@ -2623,46 +2637,36 @@
             const gridX = Math.floor((mouseX - xBase) / cellSize);
             const gridY = Math.floor((mouseY - yBase) / cellSize);
             
-            // On mobile in move mode, only allow dragging the already-selected item
-            // Do NOT change selection on touch
+            // On mobile in move mode, ONLY drag the cycle-selected item
+            // Ignore which object is actually touched - always drag the selected one
             if (isMobileMoveMode) {
-                // Check if touching the selected room
+                // Drag selected room
                 if (selectedRoomIndex !== -1 && deck.rooms[selectedRoomIndex]) {
                     const room = deck.rooms[selectedRoomIndex];
                     if (room.position && room.size) {
+                        draggedRoomIndex = selectedRoomIndex;
+                        isDragging = true;
                         const [rx, ry] = room.position;
-                        const [rw, rh] = room.size;
-                        
-                        if (gridX >= rx && gridX < rx + rw && gridY >= ry && gridY < ry + rh) {
-                            draggedRoomIndex = selectedRoomIndex;
-                            isDragging = true;
-                            dragOffset.x = gridX - rx;
-                            dragOffset.y = gridY - ry;
-                            return;
-                        }
+                        dragOffset.x = gridX - rx;
+                        dragOffset.y = gridY - ry;
+                        return;
                     }
                 }
                 
-                // Check if touching the selected outline
+                // Drag selected outline
                 if (selectedOutlineIndex !== -1 && config.manual_outlines && config.manual_outlines[selectedOutlineIndex]) {
                     const outline = config.manual_outlines[selectedOutlineIndex];
-                    if (outline.visible_on_decks && outline.visible_on_decks.includes(currentDeckIndex)) {
-                        if (outline.position && outline.size) {
-                            const [ox, oy] = outline.position;
-                            const [ow, oh] = outline.size;
-                            
-                            if (gridX >= ox && gridX < ox + ow && gridY >= oy && gridY < oy + oh) {
-                                draggedOutlineIndex = selectedOutlineIndex;
-                                isDragging = true;
-                                dragOffset.x = gridX - ox;
-                                dragOffset.y = gridY - oy;
-                                return;
-                            }
-                        }
+                    if (outline.position && outline.size) {
+                        draggedOutlineIndex = selectedOutlineIndex;
+                        isDragging = true;
+                        const [ox, oy] = outline.position;
+                        dragOffset.x = gridX - ox;
+                        dragOffset.y = gridY - oy;
+                        return;
                     }
                 }
                 
-                // Not touching selected item - do nothing in mobile move mode
+                // No selected item - do nothing
                 return;
             }
             
