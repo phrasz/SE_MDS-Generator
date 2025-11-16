@@ -921,7 +921,7 @@
                 text: "#FFFFFF",
                 border: "#9999FF",
                 grid: "#333333",
-                hull: "#767676",
+                hull: "#000000",
                 accent1: "#FF9C00",
                 accent2: "#6699CC",
                 colors: {
@@ -942,7 +942,7 @@
                 text: "#FFFFFF",
                 border: "#8B0000",
                 grid: "#330000",
-                hull: "#4a0000",
+                hull: "#0a0000",
                 accent1: "#8B0000",
                 accent2: "#FFD700",
                 colors: {
@@ -963,7 +963,7 @@
                 text: "#00FF00",
                 border: "#00AA00",
                 grid: "#003300",
-                hull: "#004400",
+                hull: "#000a00",
                 accent1: "#00FF00",
                 accent2: "#00AA00",
                 colors: {
@@ -984,7 +984,7 @@
                 text: "#FFFFFF",
                 border: "#228B22",
                 grid: "#1a3a1a",
-                hull: "#2a4a2a",
+                hull: "#000a00",
                 accent1: "#228B22",
                 accent2: "#FFD700",
                 colors: {
@@ -1005,7 +1005,7 @@
                 text: "#FFFFFF",
                 border: "#FFD700",
                 grid: "#3a2a1a",
-                hull: "#4a3a2a",
+                hull: "#1a0a00",
                 accent1: "#FFD700",
                 accent2: "#FF8C00",
                 colors: {
@@ -1026,7 +1026,7 @@
                 text: "#FFFFFF",
                 border: "#9999FF",
                 grid: "#333333",
-                hull: "#767676",
+                hull: "#000000",
                 accent1: "#FF9C00",
                 accent2: "#6699CC",
                 colors: {
@@ -1067,14 +1067,14 @@
         // Global State - NOW safe to reference COLOR_PALETTES
         let config = {
             name: "SE Endeavor",
+            manual_outlines: [], // Global outlines array - not tied to any specific deck
             decks: [
                 {
                     number: 1,
                     name: "Main Deck",
                     grid_width: 10,
                     grid_height: 8,
-                    rooms: [],
-                    manual_outlines: []
+                    rooms: []
                 }
             ],
             grid_cell_size: 60,
@@ -1366,6 +1366,9 @@
             root.style.setProperty('--lcars-blue', currentPalette.border);
             root.style.setProperty('--lcars-skyblue', currentPalette.accent2);
             root.style.setProperty('--lcars-purple', currentPalette.accent2); // Use accent2 for secondary sections
+            
+            // Re-render outline list in case user is viewing it
+            renderOutlineList();
         }
 
         function getPaletteColor(colorKey) {
@@ -1401,19 +1404,38 @@
 
         function addDeck() {
             const newDeckNumber = config.decks.length + 1;
-            config.decks.push({
+            const previousDeck = config.decks[config.decks.length - 1];
+            
+            // Create new deck - outlines are now global, not per-deck
+            const newDeck = {
                 number: newDeckNumber,
                 name: `Deck ${newDeckNumber}`,
-                grid_width: 10,
-                grid_height: 8,
-                rooms: [],
-                manual_outlines: []
-            });
+                grid_width: previousDeck.grid_width,
+                grid_height: previousDeck.grid_height,
+                rooms: [] // Start with empty rooms
+            };
+            
+            const newDeckIndex = config.decks.length;
+            
+            // Update existing global outlines to include new deck in visibility
+            if (config.manual_outlines) {
+                config.manual_outlines.forEach(outline => {
+                    if (outline.visible_on_decks && outline.visible_on_decks.length > 0) {
+                        // Add new deck to visibility list
+                        if (!outline.visible_on_decks.includes(newDeckIndex)) {
+                            outline.visible_on_decks.push(newDeckIndex);
+                        }
+                    }
+                });
+            }
+            
+            config.decks.push(newDeck);
             currentDeckIndex = config.decks.length - 1;
             saveToLocalStorage();
             syncDeckUI();
             renderDeckTabs();
             renderRoomList();
+            renderOutlineList();
             render();
         }
 
@@ -1423,14 +1445,34 @@
                 return;
             }
             if (confirm('Remove this deck and all its rooms?')) {
+                const removedDeckIndex = currentDeckIndex;
+                
+                // Remove the deck
                 config.decks.splice(currentDeckIndex, 1);
                 currentDeckIndex = Math.max(0, currentDeckIndex - 1);
+                
                 // Renumber decks
                 config.decks.forEach((deck, i) => deck.number = i + 1);
+                
+                // Update visible_on_decks for all global outlines
+                if (config.manual_outlines) {
+                    config.manual_outlines.forEach(outline => {
+                        if (outline.visible_on_decks && Array.isArray(outline.visible_on_decks)) {
+                            // Remove the deleted deck index and adjust remaining indices
+                            outline.visible_on_decks = outline.visible_on_decks
+                                .filter(deckIdx => deckIdx !== removedDeckIndex) // Remove deleted deck
+                                .map(deckIdx => deckIdx > removedDeckIndex ? deckIdx - 1 : deckIdx); // Adjust indices
+                            
+                            // Outlines can be visible on zero decks - that's okay, user can re-enable later
+                        }
+                    });
+                }
+                
                 saveToLocalStorage();
                 syncDeckUI();
                 renderDeckTabs();
                 renderRoomList();
+                renderOutlineList();
                 render();
             }
         }
@@ -1663,10 +1705,8 @@
             bg.setAttribute('fill', currentPalette.background);
             svg.appendChild(bg);
             
-            // Manual Outlines (drawn first, behind everything - always draw if they exist)
-            if (deck.manual_outlines && deck.manual_outlines.length > 0) {
-                drawManualOutlines(svg, deck, padding, 100);
-            }
+            // Manual Outlines (drawn first, behind everything - always check all decks)
+            drawManualOutlines(svg, deck, padding, 100);
             
             // LCARS Arches
             if (config.show_arches) {
@@ -1782,12 +1822,29 @@
         }
 
         function drawManualOutlines(svg, deck, xBase, yBase) {
-            if (!deck.manual_outlines) return;
-            
             const cellSize = config.grid_cell_size;
             
-            // Sort by z-index (still useful for visual layering even if not user-editable)
-            const sorted = [...deck.manual_outlines].sort((a, b) => (a.z_index || 0) - (b.z_index || 0));
+            // Use global outlines array and filter by visibility
+            const allOutlines = [];
+            if (config.manual_outlines) {
+                config.manual_outlines.forEach(outline => {
+                    // Ensure visible_on_decks exists and is an array
+                    if (!outline.visible_on_decks || !Array.isArray(outline.visible_on_decks)) {
+                        outline.visible_on_decks = [];
+                    }
+                    
+                    // Check if this outline should be visible on the current deck
+                    const visibleDecks = outline.visible_on_decks;
+                    if (visibleDecks.includes(currentDeckIndex)) {
+                        allOutlines.push(outline);
+                    }
+                });
+            }
+            
+            console.log(`Deck ${currentDeckIndex + 1}: Found ${allOutlines.length} visible outlines`);
+            
+            // Sort by z-index
+            const sorted = [...allOutlines].sort((a, b) => (a.z_index || 0) - (b.z_index || 0));
             
             sorted.forEach(outline => {
                 const x = xBase + outline.position[0] * cellSize;
@@ -2145,7 +2202,12 @@
                 label.textContent = field.label;
                 fieldDiv.appendChild(label);
                 
-                if (field.type === 'select') {
+                if (field.type === 'custom') {
+                    // Custom HTML content
+                    const customDiv = document.createElement('div');
+                    customDiv.innerHTML = field.html;
+                    fieldDiv.appendChild(customDiv);
+                } else if (field.type === 'select') {
                     const select = document.createElement('select');
                     select.id = field.id;
                     field.options.forEach(opt => {
@@ -2357,22 +2419,25 @@
                 }
             }
             
-            // Check manual outlines (lower priority)
-            if (deck.manual_outlines && deck.manual_outlines.length > 0) {
-                for (let i = deck.manual_outlines.length - 1; i >= 0; i--) {
-                    const outline = deck.manual_outlines[i];
-                    if (outline.position && outline.size) {
-                        const [ox, oy] = outline.position;
-                        const [ow, oh] = outline.size;
-                        
-                        if (gridX >= ox && gridX < ox + ow && gridY >= oy && gridY < oy + oh) {
-                            draggedOutlineIndex = i;
-                            isDragging = true;
-                            dragOffset.x = gridX - ox;
-                            dragOffset.y = gridY - oy;
-                            selectedOutlineIndex = i;
-                            renderOutlineList();
-                            return;
+            // Check manual outlines (lower priority) - use global outlines
+            if (config.manual_outlines && config.manual_outlines.length > 0) {
+                for (let i = config.manual_outlines.length - 1; i >= 0; i--) {
+                    const outline = config.manual_outlines[i];
+                    // Only allow dragging if visible on current deck
+                    if (outline.visible_on_decks && outline.visible_on_decks.includes(currentDeckIndex)) {
+                        if (outline.position && outline.size) {
+                            const [ox, oy] = outline.position;
+                            const [ow, oh] = outline.size;
+                            
+                            if (gridX >= ox && gridX < ox + ow && gridY >= oy && gridY < oy + oh) {
+                                draggedOutlineIndex = i;
+                                isDragging = true;
+                                dragOffset.x = gridX - ox;
+                                dragOffset.y = gridY - oy;
+                                selectedOutlineIndex = i;
+                                renderOutlineList();
+                                return;
+                            }
                         }
                     }
                 }
@@ -2397,7 +2462,7 @@
             
             // Handle outline dragging
             if (draggedOutlineIndex !== -1) {
-                const outline = deck.manual_outlines[draggedOutlineIndex];
+                const outline = config.manual_outlines[draggedOutlineIndex];
                 // Allow outlines to flow off the grid (no boundary constraints)
                 const newX = gridX - dragOffset.x;
                 const newY = gridY - dragOffset.y;
@@ -2456,12 +2521,13 @@
 
         // Manual Outline Functions
         function addManualOutline() {
-            const deck = getCurrentDeck();
-            if (!deck.manual_outlines) {
-                deck.manual_outlines = [];
+            // Initialize global outlines array if needed
+            if (!config.manual_outlines) {
+                config.manual_outlines = [];
             }
             
             openModal('Add Outline Shape', [
+                { id: 'newOutlineName', label: 'Name/Label', type: 'text', value: 'Hull Section' },
                 { 
                     id: 'newOutlineType', 
                     label: 'Shape Type', 
@@ -2475,12 +2541,13 @@
                 },
                 { id: 'newOutlineWidth', label: 'Width (grid cells)', type: 'number', value: 4, min: 1, max: 30 },
                 { id: 'newOutlineHeight', label: 'Height (grid cells)', type: 'number', value: 3, min: 1, max: 30 },
-                { id: 'newOutlineColor', label: 'Color', type: 'color', value: currentPalette.hull },
+                { id: 'newOutlineColor', label: 'Color', type: 'color', value: currentPalette.background },
                 { id: 'newOutlineZIndex', label: 'Z-Index (0=back, 100=front)', type: 'number', value: 0, min: 0, max: 100 }
             ],
             () => {
                 // Save callback
                 const newOutline = {
+                    name: document.getElementById('newOutlineName').value || 'Hull Section',
                     type: document.getElementById('newOutlineType').value,
                     color: document.getElementById('newOutlineColor').value,
                     position: [2, 2],
@@ -2490,10 +2557,11 @@
                     ],
                     z_index: parseInt(document.getElementById('newOutlineZIndex').value) || 0,
                     rotation: 0,
-                    show_border: true
+                    show_border: true,
+                    visible_on_decks: [currentDeckIndex] // Start visible only on current deck
                 };
                 
-                deck.manual_outlines.push(newOutline);
+                config.manual_outlines.push(newOutline);
                 saveToLocalStorage();
                 renderOutlineList();
                 render();
@@ -2502,35 +2570,48 @@
 
         function renderOutlineList() {
             const container = document.getElementById('outlineShapeList');
-            const deck = getCurrentDeck();
-            const outlines = deck.manual_outlines || [];
             
-            container.innerHTML = outlines.length === 0 
+            // Use global outlines array
+            const allOutlines = config.manual_outlines || [];
+            
+            container.innerHTML = allOutlines.length === 0 
                 ? '<div style="text-align:center;color:#666;padding:10px;">No manual outlines</div>'
                 : '';
             
-            outlines.forEach((outline, index) => {
-                const item = document.createElement('div');
-                item.className = 'room-item';
-                if (index === selectedOutlineIndex) item.classList.add('selected');
-                if (index === draggedOutlineIndex) item.classList.add('dragging');
-                item.innerHTML = `
+            allOutlines.forEach((outline, index) => {
+                const div = document.createElement('div');
+                div.className = 'room-item';
+                if (index === selectedOutlineIndex) {
+                    div.classList.add('selected');
+                }
+                if (index === draggedOutlineIndex) {
+                    div.classList.add('dragging');
+                }
+                
+                // Show deck visibility info
+                const visibleDecks = outline.visible_on_decks || [];
+                const deckInfo = visibleDecks.length === 0 ? 'Hidden' :
+                                 visibleDecks.length === config.decks.length ? 'All Decks' : 
+                                 visibleDecks.length === 1 ? `Deck ${config.decks[visibleDecks[0]].number}` :
+                                 `${visibleDecks.length} Decks`;
+                
+                div.innerHTML = `
                     <div class="room-item-header">
-                        <div class="room-item-name">${outline.type.toUpperCase()}</div>
+                        <div class="room-item-name">${outline.name || outline.type.toUpperCase()}</div>
                         <div class="room-color-indicator" style="background:${outline.color}"></div>
                     </div>
-                    <div class="room-item-stats">Z:${outline.z_index} ${outline.size[0]}x${outline.size[1]} @ (${outline.position[0]},${outline.position[1]})</div>
+                    <div class="room-item-stats">${outline.type} • ${deckInfo}</div>
                 `;
                 
                 // Double-click to edit (desktop)
-                item.addEventListener('dblclick', (e) => {
+                div.addEventListener('dblclick', (e) => {
                     e.preventDefault();
                     e.stopPropagation();
                     editOutline(index);
                 });
                 
                 // Single click to select
-                item.addEventListener('click', (e) => {
+                div.addEventListener('click', (e) => {
                     if (e.detail === 1) { // Only on single click, not double
                         selectOutline(index);
                     }
@@ -2538,27 +2619,27 @@
                 
                 // Long press to edit (mobile) - 500ms
                 let longPressTimer = null;
-                item.addEventListener('touchstart', (e) => {
+                div.addEventListener('touchstart', (e) => {
                     longPressTimer = setTimeout(() => {
                         editOutline(index);
                     }, 500);
                 });
                 
-                item.addEventListener('touchend', () => {
+                div.addEventListener('touchend', () => {
                     if (longPressTimer) {
                         clearTimeout(longPressTimer);
                         longPressTimer = null;
                     }
                 });
                 
-                item.addEventListener('touchmove', () => {
+                div.addEventListener('touchmove', () => {
                     if (longPressTimer) {
                         clearTimeout(longPressTimer);
                         longPressTimer = null;
                     }
                 });
                 
-                container.appendChild(item);
+                container.appendChild(div);
             });
         }
 
@@ -2571,10 +2652,36 @@
         }
 
         function editOutline(index) {
-            const deck = getCurrentDeck();
-            const outline = deck.manual_outlines[index];
+            const outline = config.manual_outlines[index];
+            
+            // Ensure visible_on_decks exists and is an array
+            if (!outline.visible_on_decks || !Array.isArray(outline.visible_on_decks)) {
+                outline.visible_on_decks = [currentDeckIndex];
+            }
+            
+            console.log('Editing outline:', outline.name, 'visible_on_decks:', outline.visible_on_decks);
+            
+            // Build deck checkboxes HTML using table for proper alignment
+            const deckCheckboxesHTML = `
+                <table style="width: 100%; border-collapse: collapse;">
+                    ${config.decks.map((d, i) => {
+                        const isChecked = outline.visible_on_decks.includes(i);
+                        return `
+                            <tr>
+                                <td style="padding: 5px 0; width: 30px;">
+                                    <input type="checkbox" id="deck_visibility_${i}" value="${i}" ${isChecked ? 'checked' : ''} />
+                                </td>
+                                <td style="padding: 5px 0; color: #ccc; text-align: left;">
+                                    <label for="deck_visibility_${i}" style="cursor: pointer;">Deck ${d.number}: ${d.name}</label>
+                                </td>
+                            </tr>
+                        `;
+                    }).join('')}
+                </table>
+            `;
             
             openModal('Edit Outline Shape', [
+                { id: 'outlineName', label: 'Name/Label', type: 'text', value: outline.name || outline.type },
                 { 
                     id: 'outlineType', 
                     label: 'Shape Type', 
@@ -2589,7 +2696,7 @@
                 { id: 'outlineWidth', label: 'Width (grid cells)', type: 'number', value: outline.size[0], min: 1, max: 30 },
                 { id: 'outlineHeight', label: 'Height (grid cells)', type: 'number', value: outline.size[1], min: 1, max: 30 },
                 { id: 'outlineColor', label: 'Color', type: 'color', value: outline.color },
-                { id: 'outlineRotation', label: 'Rotation (degrees)', type: 'range', value: outline.rotation || 0, min: 0, max: 360 },
+                { id: 'outlineRotation', label: 'Rotation (degrees)', type: 'range', value: outline.rotation || 0, min: 0, max: 360, showInput: true },
                 { 
                     id: 'outlineShowBorder', 
                     label: 'Show Border', 
@@ -2599,17 +2706,36 @@
                         { value: 'true', label: 'Yes' },
                         { value: 'false', label: 'No' }
                     ]
+                },
+                {
+                    id: 'deckVisibility',
+                    label: 'Visible on Decks:',
+                    type: 'custom',
+                    html: `<div style="max-height: 200px; overflow-y: auto; border: 1px solid #555; padding: 10px; border-radius: 4px; background: #0a0a0a;">${deckCheckboxesHTML}</div>`
                 }
             ],
             () => {
                 // Save callback
+                outline.name = document.getElementById('outlineName').value || outline.type;
                 outline.type = document.getElementById('outlineType').value;
                 const width = parseInt(document.getElementById('outlineWidth').value);
                 const height = parseInt(document.getElementById('outlineHeight').value);
                 outline.size = [width, height];
                 outline.color = document.getElementById('outlineColor').value;
-                outline.rotation = parseInt(document.getElementById('outlineRotation').value) || 0;
+                outline.rotation = parseInt(document.getElementById('outlineRotation_input').value) || 0;
                 outline.show_border = document.getElementById('outlineShowBorder').value === 'true';
+                
+                // Update deck visibility
+                const visibleDecks = [];
+                config.decks.forEach((d, i) => {
+                    const checkbox = document.getElementById(`deck_visibility_${i}`);
+                    if (checkbox && checkbox.checked) {
+                        visibleDecks.push(i);
+                    }
+                });
+                outline.visible_on_decks = visibleDecks.length > 0 ? visibleDecks : [currentDeckIndex];
+                
+                console.log('Saved outline visibility:', outline.name, 'visible_on_decks:', outline.visible_on_decks);
                 
                 saveToLocalStorage();
                 renderOutlineList();
@@ -2617,26 +2743,33 @@
             },
             () => {
                 // Delete callback
-                deck.manual_outlines.splice(index, 1);
+                config.manual_outlines.splice(index, 1);
                 selectedOutlineIndex = -1;
                 saveToLocalStorage();
                 renderOutlineList();
                 render();
+            },
+            '💾 Save',
+            () => {
+                // Duplicate callback
+                duplicateOutlineToDecks(index);
             });
             
             // Add live preview for outline editing
             setTimeout(() => {
                 const liveUpdateOutline = () => {
+                    outline.name = document.getElementById('outlineName').value || outline.type;
                     outline.type = document.getElementById('outlineType').value;
                     const width = parseInt(document.getElementById('outlineWidth').value) || outline.size[0];
                     const height = parseInt(document.getElementById('outlineHeight').value) || outline.size[1];
                     outline.size = [width, height];
                     outline.color = document.getElementById('outlineColor').value;
-                    outline.rotation = parseInt(document.getElementById('outlineRotation').value) || 0;
+                    outline.rotation = parseInt(document.getElementById('outlineRotation_input').value) || 0;
                     outline.show_border = document.getElementById('outlineShowBorder').value === 'true';
                     render();
                 };
                 
+                document.getElementById('outlineName').addEventListener('input', liveUpdateOutline);
                 document.getElementById('outlineType').addEventListener('change', liveUpdateOutline);
                 document.getElementById('outlineWidth').addEventListener('input', liveUpdateOutline);
                 document.getElementById('outlineHeight').addEventListener('input', liveUpdateOutline);
@@ -2644,6 +2777,86 @@
                 document.getElementById('outlineRotation').addEventListener('input', liveUpdateOutline);
                 document.getElementById('outlineShowBorder').addEventListener('change', liveUpdateOutline);
             }, 100);
+        }
+
+        function duplicateOutlineToDecks(outlineIndex) {
+            const outline = config.manual_outlines[outlineIndex];
+            
+            // Create deck selection checkboxes
+            const deckOptions = config.decks.map((deck, index) => {
+                if (index === currentDeckIndex) return null; // Skip current deck
+                return `
+                    <div style="margin: 10px 0;">
+                        <label style="display: flex; align-items: center; gap: 10px;">
+                            <input type="checkbox" id="outline_deck_${index}" value="${index}" />
+                            <span>Deck ${deck.number}: ${deck.name}</span>
+                        </label>
+                    </div>
+                `;
+            }).filter(Boolean).join('');
+            
+            if (!deckOptions) {
+                alert('No other decks available. Add more decks first!');
+                return;
+            }
+            
+            const modalBody = document.getElementById('modalBody');
+            modalBody.innerHTML = `
+                <p style="color: #ccc; margin-bottom: 15px;">Select which decks to duplicate outline shape "${outline.name || outline.type}" to:</p>
+                ${deckOptions}
+            `;
+            
+            // Update modal title and buttons
+            document.getElementById('modalTitle').textContent = 'Duplicate Outline Shape to Decks';
+            const deleteBtn = document.getElementById('modalDeleteBtn');
+            deleteBtn.style.display = 'none';
+            const duplicateBtn = document.getElementById('modalDuplicateBtn');
+            if (duplicateBtn) duplicateBtn.style.display = 'none';
+            
+            const saveBtn = document.getElementById('modalSaveBtn');
+            saveBtn.textContent = '📋 Duplicate';
+            
+            modalContext = {
+                onSave: () => {
+                    // Get selected decks
+                    const selectedDecks = [];
+                    config.decks.forEach((deck, index) => {
+                        const checkbox = document.getElementById(`outline_deck_${index}`);
+                        if (checkbox && checkbox.checked) {
+                            selectedDecks.push(index);
+                        }
+                    });
+                    
+                    if (selectedDecks.length === 0) {
+                        alert('Please select at least one deck!');
+                        return;
+                    }
+                    
+                    // Duplicate outline to selected decks
+                    selectedDecks.forEach(deckIndex => {
+                        const outlineCopy = JSON.parse(JSON.stringify(outline)); // Deep clone
+                        // Update visible_on_decks to include the new deck
+                        if (!outlineCopy.visible_on_decks) {
+                            outlineCopy.visible_on_decks = [deckIndex];
+                        } else {
+                            // Add new deck to visibility list if not already there
+                            if (!outlineCopy.visible_on_decks.includes(deckIndex)) {
+                                outlineCopy.visible_on_decks.push(deckIndex);
+                            }
+                        }
+                        config.manual_outlines.push(outlineCopy);
+                    });
+                    
+                    saveToLocalStorage();
+                    alert(`Outline shape duplicated to ${selectedDecks.length} deck(s)!`);
+                    renderOutlineList();
+                    render();
+                },
+                onDelete: null,
+                onDuplicate: null
+            };
+            
+            document.getElementById('modalOverlay').classList.add('active');
         }
 
         // Export Functions
