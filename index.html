@@ -586,14 +586,27 @@
         }
         
         /* Mobile move mode buttons */
+        .mobile-only {
+            display: none;
+        }
+        
         .mobile-move-buttons {
             display: none;
         }
         
         @media (max-width: 768px) {
+            .mobile-only {
+                display: inline-block;
+            }
+            
             .mobile-move-buttons.active {
                 display: inline-flex;
                 gap: 10px;
+            }
+            
+            #moveModeToggle.active {
+                background: var(--lcars-orange);
+                color: #000;
             }
         }
     </style>
@@ -911,6 +924,7 @@
     <!-- Main Canvas Area -->
     <div class="canvas-area">
         <div class="toolbar">
+            <button class="btn btn-secondary mobile-only" id="moveModeToggle" onclick="toggleMobileMoveMode()">🔒 Move Mode</button>
             <div class="mobile-move-buttons" id="mobileMoveButtons">
                 <button class="btn btn-secondary" id="mobileToggleMode" onclick="toggleMobileMode()">📦 Rooms</button>
                 <button class="btn btn-secondary" onclick="cycleMobilePrev()">◀</button>
@@ -1142,9 +1156,6 @@
         // Mobile move mode state
         let isMobileMoveMode = false;
         let mobileSelectionMode = 'rooms'; // 'rooms' or 'outlines'
-        let mobileLongPressTimer = null;
-        let mobileTouchStartTime = 0;
-        let mobileInitialTouches = 0;
 
         // Initialize
         function init() {
@@ -2461,9 +2472,12 @@
         function toggleMobileMoveMode() {
             isMobileMoveMode = !isMobileMoveMode;
             const buttons = document.getElementById('mobileMoveButtons');
+            const toggleBtn = document.getElementById('moveModeToggle');
             
             if (isMobileMoveMode) {
                 buttons.classList.add('active');
+                toggleBtn.classList.add('active');
+                toggleBtn.textContent = '🔓 Exit Move Mode';
                 // Auto-select first item when entering move mode
                 if (mobileSelectionMode === 'rooms') {
                     const rooms = getCurrentDeck().rooms;
@@ -2482,6 +2496,8 @@
                 render();
             } else {
                 buttons.classList.remove('active');
+                toggleBtn.classList.remove('active');
+                toggleBtn.textContent = '🔒 Move Mode';
                 selectedRoomIndex = -1;
                 selectedOutlineIndex = -1;
                 renderRoomList();
@@ -2702,31 +2718,12 @@
 
         // Touch event handlers
         function handleTouchStart(event) {
-            event.preventDefault();
-            
-            // Detect multi-finger touch or start long-press timer
-            if (event.touches.length >= 2) {
-                // Multi-finger touch - toggle move mode immediately
-                if (mobileLongPressTimer) {
-                    clearTimeout(mobileLongPressTimer);
-                    mobileLongPressTimer = null;
-                }
-                toggleMobileMoveMode();
+            // Only allow touch interaction when in move mode
+            if (!isMobileMoveMode) {
                 return;
             }
             
-            // Single finger touch
-            if (!isMobileMoveMode) {
-                // Not in move mode - start long-press timer (500ms)
-                mobileTouchStartTime = Date.now();
-                mobileLongPressTimer = setTimeout(() => {
-                    toggleMobileMoveMode();
-                    mobileLongPressTimer = null;
-                }, 500);
-                return; // Don't start dragging
-            }
-            
-            // In move mode - allow dragging selected item
+            event.preventDefault();
             const touch = event.touches[0];
             const mouseEvent = new MouseEvent('mousedown', {
                 clientX: touch.clientX,
@@ -2736,19 +2733,12 @@
         }
 
         function handleTouchMove(event) {
-            event.preventDefault();
-            
-            // Cancel long-press timer if moving
-            if (mobileLongPressTimer) {
-                clearTimeout(mobileLongPressTimer);
-                mobileLongPressTimer = null;
-            }
-            
             // Only allow dragging in move mode
             if (!isMobileMoveMode) {
                 return;
             }
             
+            event.preventDefault();
             const touch = event.touches[0];
             const mouseEvent = new MouseEvent('mousemove', {
                 clientX: touch.clientX,
@@ -2758,19 +2748,14 @@
         }
 
         function handleTouchEnd(event) {
-            event.preventDefault();
-            
-            // Cancel long-press timer
-            if (mobileLongPressTimer) {
-                clearTimeout(mobileLongPressTimer);
-                mobileLongPressTimer = null;
-            }
-            
             // Only handle mouse up in move mode
-            if (isMobileMoveMode) {
-                const mouseEvent = new MouseEvent('mouseup', {});
-                handleMouseUp(mouseEvent);
+            if (!isMobileMoveMode) {
+                return;
             }
+            
+            event.preventDefault();
+            const mouseEvent = new MouseEvent('mouseup', {});
+            handleMouseUp(mouseEvent);
         }
 
         // Manual Outline Functions
