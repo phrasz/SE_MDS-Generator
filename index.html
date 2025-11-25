@@ -245,9 +245,20 @@
             padding: 15px;
             border-bottom: 3px solid var(--lcars-orange);
             display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        
+        .toolbar-row-1,
+        .toolbar-row-2 {
+            display: flex;
             gap: 10px;
             flex-wrap: wrap;
             justify-content: flex-end;
+        }
+        
+        .toolbar-row-2 {
+            justify-content: flex-start;
         }
 
         .canvas-container {
@@ -591,7 +602,7 @@
         }
         
         .mobile-move-buttons {
-            display: none;
+            display: none !important;
         }
         
         @media (max-width: 768px) {
@@ -600,8 +611,7 @@
             }
             
             .mobile-move-buttons.active {
-                display: inline-flex;
-                gap: 10px;
+                display: flex !important;
             }
             
             #moveModeToggle.active {
@@ -924,13 +934,15 @@
     <!-- Main Canvas Area -->
     <div class="canvas-area">
         <div class="toolbar">
-            <button class="btn btn-secondary mobile-only" id="moveModeToggle" onclick="toggleMobileMoveMode()">🔒 Move Mode</button>
-            <div class="mobile-move-buttons" id="mobileMoveButtons">
+            <div class="toolbar-row-1">
+                <button class="btn btn-secondary mobile-only" id="moveModeToggle" onclick="toggleMobileMoveMode()">🔒 Move Mode</button>
+                <button class="btn btn-secondary" onclick="showHelp()">❓ Help</button>
+            </div>
+            <div class="toolbar-row-2 mobile-move-buttons" id="mobileMoveButtons">
                 <button class="btn btn-secondary" id="mobileToggleMode" onclick="toggleMobileMode()">📦 Rooms</button>
                 <button class="btn btn-secondary" onclick="cycleMobilePrev()">◀</button>
                 <button class="btn btn-secondary" onclick="cycleMobileNext()">▶</button>
             </div>
-            <button class="btn btn-secondary" onclick="showHelp()">❓ Help</button>
         </div>
 
         <div class="canvas-container">
@@ -2611,7 +2623,50 @@
             const gridX = Math.floor((mouseX - xBase) / cellSize);
             const gridY = Math.floor((mouseY - yBase) / cellSize);
             
-            // Check rooms FIRST (higher priority than outlines)
+            // On mobile in move mode, only allow dragging the already-selected item
+            // Do NOT change selection on touch
+            if (isMobileMoveMode) {
+                // Check if touching the selected room
+                if (selectedRoomIndex !== -1 && deck.rooms[selectedRoomIndex]) {
+                    const room = deck.rooms[selectedRoomIndex];
+                    if (room.position && room.size) {
+                        const [rx, ry] = room.position;
+                        const [rw, rh] = room.size;
+                        
+                        if (gridX >= rx && gridX < rx + rw && gridY >= ry && gridY < ry + rh) {
+                            draggedRoomIndex = selectedRoomIndex;
+                            isDragging = true;
+                            dragOffset.x = gridX - rx;
+                            dragOffset.y = gridY - ry;
+                            return;
+                        }
+                    }
+                }
+                
+                // Check if touching the selected outline
+                if (selectedOutlineIndex !== -1 && config.manual_outlines && config.manual_outlines[selectedOutlineIndex]) {
+                    const outline = config.manual_outlines[selectedOutlineIndex];
+                    if (outline.visible_on_decks && outline.visible_on_decks.includes(currentDeckIndex)) {
+                        if (outline.position && outline.size) {
+                            const [ox, oy] = outline.position;
+                            const [ow, oh] = outline.size;
+                            
+                            if (gridX >= ox && gridX < ox + ow && gridY >= oy && gridY < oy + oh) {
+                                draggedOutlineIndex = selectedOutlineIndex;
+                                isDragging = true;
+                                dragOffset.x = gridX - ox;
+                                dragOffset.y = gridY - oy;
+                                return;
+                            }
+                        }
+                    }
+                }
+                
+                // Not touching selected item - do nothing in mobile move mode
+                return;
+            }
+            
+            // Desktop behavior: Check rooms FIRST (higher priority than outlines)
             for (let i = deck.rooms.length - 1; i >= 0; i--) {
                 const room = deck.rooms[i];
                 if (room.position && room.size) {
