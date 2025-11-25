@@ -758,8 +758,24 @@
                         <option value="178">178x178 (Single LCD - 1x1 grid)</option>
                         <option value="512">512x512 (3x3 LCD grid - 9 panels)</option>
                         <option value="1024">1024x1024 (6x6 LCD grid - 36 panels)</option>
+                        <option value="custom">Custom Grid (specify panels)</option>
                     </select>
                 </div>
+                
+                <!-- Custom grid input (hidden by default) -->
+                <div id="seLCDCustomGrid" style="display:none; margin-top: 10px;">
+                    <div style="display: flex; gap: 15px; align-items: center;">
+                        <div style="flex: 1;">
+                            <label>Panels Wide (X):</label>
+                            <input type="number" id="seLCDCustomX" min="1" max="20" value="2" style="width: 100%; padding: 5px;" onchange="regenerateSELCDText()" />
+                        </div>
+                        <div style="flex: 1;">
+                            <label>Panels Tall (Y):</label>
+                            <input type="number" id="seLCDCustomY" min="1" max="20" value="2" style="width: 100%; padding: 5px;" onchange="regenerateSELCDText()" />
+                        </div>
+                    </div>
+                </div>
+                
                 <div id="seLCDGridInfo" style="margin-top: 10px; color: var(--lcars-yellow);"></div>
                 <br>
                 
@@ -3477,18 +3493,31 @@
 
         function regenerateSELCDText() {
             try {
-                const resolution = parseInt(document.getElementById('seLCDResolution').value);
+                const resolutionSelect = document.getElementById('seLCDResolution').value;
                 const tileSize = 178; // Standard LCD size
-                const gridSize = Math.ceil(resolution / tileSize);
+                let gridSizeX, gridSizeY;
                 
-                console.log(`Regenerating with resolution: ${resolution}x${resolution}, grid: ${gridSize}x${gridSize}`);
+                // Show/hide custom grid input
+                const customGridDiv = document.getElementById('seLCDCustomGrid');
+                if (resolutionSelect === 'custom') {
+                    customGridDiv.style.display = 'block';
+                    gridSizeX = parseInt(document.getElementById('seLCDCustomX').value) || 2;
+                    gridSizeY = parseInt(document.getElementById('seLCDCustomY').value) || 2;
+                } else {
+                    customGridDiv.style.display = 'none';
+                    const resolution = parseInt(resolutionSelect);
+                    gridSizeX = Math.ceil(resolution / tileSize);
+                    gridSizeY = Math.ceil(resolution / tileSize);
+                }
+                
+                console.log(`Regenerating with grid: ${gridSizeX}x${gridSizeY}`);
                 
                 // Update grid info
                 const gridInfo = document.getElementById('seLCDGridInfo');
-                if (gridSize === 1) {
+                if (gridSizeX === 1 && gridSizeY === 1) {
                     gridInfo.textContent = `Single LCD panel (178x178)`;
                 } else {
-                    gridInfo.textContent = `Requires ${gridSize}x${gridSize} grid = ${gridSize * gridSize} LCD panels`;
+                    gridInfo.textContent = `Requires ${gridSizeX}x${gridSizeY} grid = ${gridSizeX * gridSizeY} LCD panels`;
                 }
                 
                 const canvas = document.createElement('canvas');
@@ -3499,9 +3528,9 @@
                     try {
                         console.log('Image loaded, converting...');
                         
-                        // Calculate actual grid dimensions in pixels (may be larger than resolution)
-                        const gridPixelWidth = gridSize * tileSize;
-                        const gridPixelHeight = gridSize * tileSize;
+                        // Calculate actual grid dimensions in pixels
+                        const gridPixelWidth = gridSizeX * tileSize;
+                        const gridPixelHeight = gridSizeY * tileSize;
                         
                         canvas.width = gridPixelWidth;
                         canvas.height = gridPixelHeight;
@@ -3528,8 +3557,8 @@
                         // Generate tiles
                         window.seLCDTiles = [];
                         
-                        for (let tileY = 0; tileY < gridSize; tileY++) {
-                            for (let tileX = 0; tileX < gridSize; tileX++) {
+                        for (let tileY = 0; tileY < gridSizeY; tileY++) {
+                            for (let tileX = 0; tileX < gridSizeX; tileX++) {
                                 let tileText = '';
                                 
                                 // Extract 178x178 tile from the full image
@@ -3560,7 +3589,8 @@
                                 
                                 // Add metadata footer
                                 const deck = getCurrentDeck();
-                                tileText += `\nMDS: ${config.name} D${deck.number} [${resolution}x${resolution}] Tile<${tileX},${tileY}>`;
+                                const gridDesc = resolutionSelect === 'custom' ? `${gridSizeX}x${gridSizeY}` : `${resolutionSelect}x${resolutionSelect}`;
+                                tileText += `\nMDS: ${config.name} D${deck.number} [${gridDesc}] Tile<${tileX},${tileY}>`;
                                 
                                 window.seLCDTiles.push({
                                     x: tileX,
@@ -3574,7 +3604,7 @@
                         
                         // Show/hide tile selector based on grid size
                         const tileSelector = document.getElementById('seLCDTileSelector');
-                        if (gridSize === 1) {
+                        if (gridSizeX === 1 && gridSizeY === 1) {
                             tileSelector.style.display = 'none';
                             document.getElementById('seLCDInstructionTile').style.display = 'none';
                             showSELCDModal(window.seLCDTiles[0].text);
@@ -3586,14 +3616,14 @@
                             const tileTabs = document.getElementById('seLCDTileTabs');
                             tileTabs.innerHTML = '';
                             
-                            for (let tileY = 0; tileY < gridSize; tileY++) {
-                                for (let tileX = 0; tileX < gridSize; tileX++) {
-                                    const tileIndex = tileY * gridSize + tileX;
+                            for (let tileY = 0; tileY < gridSizeY; tileY++) {
+                                for (let tileX = 0; tileX < gridSizeX; tileX++) {
+                                    const tileIndex = tileY * gridSizeX + tileX;
                                     const btn = document.createElement('button');
                                     btn.className = 'btn btn-secondary';
                                     btn.textContent = `<${tileX},${tileY}>`;
                                     btn.style.minWidth = '70px';
-                                    btn.onclick = () => selectSELCDTile(tileIndex);
+                                    btn.onclick = () => selectSELCDTile(tileIndex, gridSizeX);
                                     if (tileIndex === 0) {
                                         btn.classList.add('active-tile');
                                         btn.style.background = 'var(--lcars-orange)';
@@ -3606,7 +3636,7 @@
                             }
                             
                             // Show first tile
-                            selectSELCDTile(0);
+                            selectSELCDTile(0, gridSizeX);
                         }
                         
                     } catch (err) {
@@ -3628,7 +3658,7 @@
             }
         }
         
-        function selectSELCDTile(index) {
+        function selectSELCDTile(index, gridSizeX) {
             const tile = window.seLCDTiles[index];
             
             // Update active tile button
