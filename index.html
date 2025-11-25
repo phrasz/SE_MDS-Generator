@@ -746,16 +746,29 @@
 
     <!-- SE LCD Modal -->
     <div class="help-modal" id="seLCDModal" style="display:none;">
-        <div class="modal-dialog">
+        <div class="modal-dialog" style="max-width: 800px;">
             <div class="modal-header">
                 <div class="modal-title">🎮 Space Engineers LCD Text</div>
                 <button class="modal-close" onclick="closeSELCDModal()">×</button>
             </div>
             <div class="modal-body" style="max-height:70vh; overflow-y:auto;">
+                <div class="control-group">
+                    <label>Resolution:</label>
+                    <select id="seLCDResolution" onchange="regenerateSELCDText()">
+                        <option value="178">178x178 (Single LCD - 1x1 grid)</option>
+                        <option value="512">512x512 (3x3 LCD grid - 9 panels)</option>
+                        <option value="1024">1024x1024 (6x6 LCD grid - 36 panels)</option>
+                    </select>
+                </div>
+                <div id="seLCDGridInfo" style="margin-top: 10px; color: var(--lcars-yellow);"></div>
+                <br>
+                
                 <p><strong>Instructions:</strong></p>
                 <ol>
+                    <li>Select desired resolution above</li>
+                    <li id="seLCDInstructionTile">For multi-panel grids: Click each tile tab and copy text to corresponding LCD panel</li>
                     <li>Click "Copy to Clipboard" below</li>
-                    <li>In Space Engineers, access an LCD panel</li>
+                    <li>In Space Engineers, access an LCD panel (or multiple panels in a grid)</li>
                     <li>Set Content to "Text and Images"</li>
                     <li>Set Font to <strong>MONOSPACE</strong></li>
                     <li>Set Font Size to <strong>0.1</strong> (minimum)</li>
@@ -763,9 +776,16 @@
                     <li>Paste the text (Ctrl+V)</li>
                 </ol>
                 <br>
+                
+                <!-- Tile selector tabs (hidden for 178x178) -->
+                <div id="seLCDTileSelector" style="display:none; margin-bottom: 15px;">
+                    <label style="display: block; margin-bottom: 5px;"><strong>Select LCD Panel Tile:</strong></label>
+                    <div id="seLCDTileTabs" style="display: flex; flex-wrap: wrap; gap: 5px;"></div>
+                </div>
+                
                 <div class="control-group">
-                    <label>LCD Text Preview:</label>
-                    <textarea id="seLCDTextArea" readonly style="width: 100%; height: 200px; font-family: monospace; font-size: 8px; background: #222; color: #0f0; border: 1px solid var(--lcars-blue); padding: 10px; resize: vertical;"></textarea>
+                    <label id="seLCDPreviewLabel">LCD Text Preview:</label>
+                    <textarea id="seLCDTextArea" readonly style="width: 100%; height: 200px; font-family: monospace; font-size: 6px; background: #222; color: #0f0; border: 1px solid var(--lcars-blue); padding: 10px; resize: vertical;"></textarea>
                 </div>
                 <br>
                 <p id="seLCDStringLength" style="color: var(--lcars-yellow);"><em>String Length: 0 characters</em></p>
@@ -3442,7 +3462,35 @@
                     return;
                 }
                 
-                const svgData = new XMLSerializer().serializeToString(svg);
+                // Store SVG data globally for regeneration
+                window.currentSVGData = new XMLSerializer().serializeToString(svg);
+                
+                // Show modal and generate with default resolution
+                document.getElementById('seLCDModal').style.display = 'flex';
+                regenerateSELCDText();
+                
+            } catch (err) {
+                console.error('Error in exportSELCD:', err);
+                alert('Error: ' + err.message);
+            }
+        }
+
+        function regenerateSELCDText() {
+            try {
+                const resolution = parseInt(document.getElementById('seLCDResolution').value);
+                const tileSize = 178; // Standard LCD size
+                const gridSize = Math.ceil(resolution / tileSize);
+                
+                console.log(`Regenerating with resolution: ${resolution}x${resolution}, grid: ${gridSize}x${gridSize}`);
+                
+                // Update grid info
+                const gridInfo = document.getElementById('seLCDGridInfo');
+                if (gridSize === 1) {
+                    gridInfo.textContent = `Single LCD panel (178x178)`;
+                } else {
+                    gridInfo.textContent = `Requires ${gridSize}x${gridSize} grid = ${gridSize * gridSize} LCD panels`;
+                }
+                
                 const canvas = document.createElement('canvas');
                 const ctx = canvas.getContext('2d');
                 const img = new Image();
@@ -3450,61 +3498,117 @@
                 img.onload = () => {
                     try {
                         console.log('Image loaded, converting...');
-                        // Set canvas dimensions (use LCD standard size or custom)
-                        const lcdWidth = 178;  // Standard LCD panel width in characters
-                        const lcdHeight = 178; // Standard LCD panel height in characters
                         
-                        canvas.width = lcdWidth;
-                        canvas.height = lcdHeight;
+                        // Calculate actual grid dimensions in pixels (may be larger than resolution)
+                        const gridPixelWidth = gridSize * tileSize;
+                        const gridPixelHeight = gridSize * tileSize;
+                        
+                        canvas.width = gridPixelWidth;
+                        canvas.height = gridPixelHeight;
                         
                         // Fill with black background
                         ctx.fillStyle = '#000000';
-                        ctx.fillRect(0, 0, lcdWidth, lcdHeight);
+                        ctx.fillRect(0, 0, gridPixelWidth, gridPixelHeight);
                         
-                        // Calculate scaling to fit image in LCD while maintaining aspect ratio
-                        const scale = Math.min(lcdWidth / img.width, lcdHeight / img.height);
+                        // Calculate scaling to fit image while maintaining aspect ratio
+                        // Use the grid dimensions, not the original resolution
+                        const scale = Math.min(gridPixelWidth / img.width, gridPixelHeight / img.height);
                         const scaledWidth = img.width * scale;
                         const scaledHeight = img.height * scale;
-                        const offsetX = (lcdWidth - scaledWidth) / 2;
-                        const offsetY = (lcdHeight - scaledHeight) / 2;
+                        const offsetX = (gridPixelWidth - scaledWidth) / 2;
+                        const offsetY = (gridPixelHeight - scaledHeight) / 2;
                         
-                        // Draw image centered
+                        // Draw image centered in the grid
                         ctx.drawImage(img, offsetX, offsetY, scaledWidth, scaledHeight);
                         
-                        // Get pixel data
-                        const imageData = ctx.getImageData(0, 0, lcdWidth, lcdHeight);
+                        // Get full pixel data from the grid
+                        const imageData = ctx.getImageData(0, 0, gridPixelWidth, gridPixelHeight);
                         const pixels = imageData.data;
                         
-                        // Convert to SE LCD text format
-                        let lcdText = '';
-                        for (let y = 0; y < lcdHeight; y++) {
-                            for (let x = 0; x < lcdWidth; x++) {
-                                const idx = (y * lcdWidth + x) * 4;
-                                const r = pixels[idx];
-                                const g = pixels[idx + 1];
-                                const b = pixels[idx + 2];
+                        // Generate tiles
+                        window.seLCDTiles = [];
+                        
+                        for (let tileY = 0; tileY < gridSize; tileY++) {
+                            for (let tileX = 0; tileX < gridSize; tileX++) {
+                                let tileText = '';
                                 
-                                // Convert RGB (0-255) to 3-bit color (0-7)
-                                const r3bit = Math.round(r / 255 * 7);
-                                const g3bit = Math.round(g / 255 * 7);
-                                const b3bit = Math.round(b / 255 * 7);
+                                // Extract 178x178 tile from the full image
+                                for (let y = 0; y < tileSize; y++) {
+                                    for (let x = 0; x < tileSize; x++) {
+                                        const sourceX = tileX * tileSize + x;
+                                        const sourceY = tileY * tileSize + y;
+                                        
+                                        // Always within bounds since we sized canvas to grid
+                                        const idx = (sourceY * gridPixelWidth + sourceX) * 4;
+                                        const r = pixels[idx];
+                                        const g = pixels[idx + 1];
+                                        const b = pixels[idx + 2];
+                                        
+                                        // Convert RGB to 3-bit color
+                                        const r3bit = Math.round(r / 255 * 7);
+                                        const g3bit = Math.round(g / 255 * 7);
+                                        const b3bit = Math.round(b / 255 * 7);
+                                        
+                                        // Encode as SE monospace character
+                                        const charCode = 0xE100 + (r3bit << 6) + (g3bit << 3) + b3bit;
+                                        tileText += String.fromCharCode(charCode);
+                                    }
+                                    if (y < tileSize - 1) {
+                                        tileText += '\n';
+                                    }
+                                }
                                 
-                                // Encode as SE monospace character
-                                const charCode = 0xE100 + (r3bit << 6) + (g3bit << 3) + b3bit;
-                                lcdText += String.fromCharCode(charCode);
-                            }
-                            if (y < lcdHeight - 1) {
-                                lcdText += '\n';
+                                // Add metadata footer
+                                const deck = getCurrentDeck();
+                                tileText += `\nMDS: ${config.name} D${deck.number} [${resolution}x${resolution}] Tile<${tileX},${tileY}>`;
+                                
+                                window.seLCDTiles.push({
+                                    x: tileX,
+                                    y: tileY,
+                                    text: tileText
+                                });
                             }
                         }
                         
-                        // Add metadata footer
-                        const deck = getCurrentDeck();
-                        lcdText += `\nMDS Generator - ${config.name} Deck ${deck.number}`;
+                        console.log(`Generated ${window.seLCDTiles.length} tiles`);
                         
-                        console.log('Conversion complete, showing modal...');
-                        // Show modal with text and copy button
-                        showSELCDModal(lcdText);
+                        // Show/hide tile selector based on grid size
+                        const tileSelector = document.getElementById('seLCDTileSelector');
+                        if (gridSize === 1) {
+                            tileSelector.style.display = 'none';
+                            document.getElementById('seLCDInstructionTile').style.display = 'none';
+                            showSELCDModal(window.seLCDTiles[0].text);
+                        } else {
+                            tileSelector.style.display = 'block';
+                            document.getElementById('seLCDInstructionTile').style.display = 'list-item';
+                            
+                            // Generate tile tabs
+                            const tileTabs = document.getElementById('seLCDTileTabs');
+                            tileTabs.innerHTML = '';
+                            
+                            for (let tileY = 0; tileY < gridSize; tileY++) {
+                                for (let tileX = 0; tileX < gridSize; tileX++) {
+                                    const tileIndex = tileY * gridSize + tileX;
+                                    const btn = document.createElement('button');
+                                    btn.className = 'btn btn-secondary';
+                                    btn.textContent = `<${tileX},${tileY}>`;
+                                    btn.style.minWidth = '70px';
+                                    btn.onclick = () => selectSELCDTile(tileIndex);
+                                    if (tileIndex === 0) {
+                                        btn.classList.add('active-tile');
+                                        btn.style.background = 'var(--lcars-orange)';
+                                        btn.style.color = '#000';
+                                    }
+                                    tileTabs.appendChild(btn);
+                                }
+                                // Add line break after each row
+                                tileTabs.appendChild(document.createElement('br'));
+                            }
+                            
+                            // Show first tile
+                            selectSELCDTile(0);
+                        }
+                        
                     } catch (err) {
                         console.error('Error during conversion:', err);
                         alert('Error converting image: ' + err.message);
@@ -3516,12 +3620,35 @@
                     alert('Error loading image for conversion');
                 };
                 
-                img.src = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svgData)));
+                img.src = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(window.currentSVGData)));
                 console.log('Image source set, waiting for load...');
             } catch (err) {
-                console.error('Error in exportSELCD:', err);
+                console.error('Error in regenerateSELCDText:', err);
                 alert('Error: ' + err.message);
             }
+        }
+        
+        function selectSELCDTile(index) {
+            const tile = window.seLCDTiles[index];
+            
+            // Update active tile button
+            const tileTabs = document.getElementById('seLCDTileTabs');
+            const buttons = tileTabs.getElementsByTagName('button');
+            for (let i = 0; i < buttons.length; i++) {
+                if (i === index) {
+                    buttons[i].classList.add('active-tile');
+                    buttons[i].style.background = 'var(--lcars-orange)';
+                    buttons[i].style.color = '#000';
+                } else {
+                    buttons[i].classList.remove('active-tile');
+                    buttons[i].style.background = '';
+                    buttons[i].style.color = '';
+                }
+            }
+            
+            // Update text area and label
+            document.getElementById('seLCDPreviewLabel').textContent = `LCD Text Preview - Tile <${tile.x},${tile.y}>:`;
+            showSELCDModal(tile.text);
         }
 
         function showSELCDModal(lcdText) {
