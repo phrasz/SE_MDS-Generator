@@ -584,6 +584,18 @@
                 stroke-dashoffset: -10;
             }
         }
+        
+        /* Mobile move mode buttons */
+        .mobile-move-buttons {
+            display: none;
+        }
+        
+        @media (max-width: 768px) {
+            .mobile-move-buttons.active {
+                display: inline-flex;
+                gap: 10px;
+            }
+        }
     </style>
 </head>
 <body>
@@ -899,7 +911,11 @@
     <!-- Main Canvas Area -->
     <div class="canvas-area">
         <div class="toolbar">
-            <button class="btn" onclick="render()">🔄 Refresh</button>
+            <div class="mobile-move-buttons" id="mobileMoveButtons">
+                <button class="btn btn-secondary" id="mobileToggleMode" onclick="toggleMobileMode()">📦 Rooms</button>
+                <button class="btn btn-secondary" onclick="cycleMobilePrev()">◀</button>
+                <button class="btn btn-secondary" onclick="cycleMobileNext()">▶</button>
+            </div>
             <button class="btn btn-secondary" onclick="showHelp()">❓ Help</button>
         </div>
 
@@ -1116,10 +1132,19 @@
 
         let currentDeckIndex = 0;
         let selectedRoomIndex = -1;
+        let selectedOutlineIndex = -1;
         let draggedRoomIndex = -1;
+        let draggedOutlineIndex = -1;
         let dragOffset = { x: 0, y: 0 };
         let isDragging = false;
         let currentPalette = COLOR_PALETTES.lcars;
+        
+        // Mobile move mode state
+        let isMobileMoveMode = false;
+        let mobileSelectionMode = 'rooms'; // 'rooms' or 'outlines'
+        let mobileLongPressTimer = null;
+        let mobileTouchStartTime = 0;
+        let mobileInitialTouches = 0;
 
         // Initialize
         function init() {
@@ -1616,6 +1641,7 @@
         function selectRoom(index) {
             selectedRoomIndex = selectedRoomIndex === index ? -1 : index;
             renderRoomList();
+            render(); // Update canvas to show selection highlight
         }
 
         function editRoom(index) {
@@ -2431,6 +2457,95 @@
             }
         }
 
+        // Mobile Move Mode Functions
+        function toggleMobileMoveMode() {
+            isMobileMoveMode = !isMobileMoveMode;
+            const buttons = document.getElementById('mobileMoveButtons');
+            
+            if (isMobileMoveMode) {
+                buttons.classList.add('active');
+                // Auto-select first item when entering move mode
+                if (mobileSelectionMode === 'rooms') {
+                    const rooms = getCurrentDeck().rooms;
+                    if (rooms.length > 0) {
+                        selectedRoomIndex = 0;
+                        selectedOutlineIndex = -1;
+                    }
+                } else {
+                    if (config.manual_outlines && config.manual_outlines.length > 0) {
+                        selectedOutlineIndex = 0;
+                        selectedRoomIndex = -1;
+                    }
+                }
+                renderRoomList();
+                renderOutlineList();
+                render();
+            } else {
+                buttons.classList.remove('active');
+                selectedRoomIndex = -1;
+                selectedOutlineIndex = -1;
+                renderRoomList();
+                renderOutlineList();
+                render();
+            }
+        }
+        
+        function toggleMobileMode() {
+            // Toggle between rooms and outlines
+            mobileSelectionMode = mobileSelectionMode === 'rooms' ? 'outlines' : 'rooms';
+            const btn = document.getElementById('mobileToggleMode');
+            btn.textContent = mobileSelectionMode === 'rooms' ? '📦 Rooms' : '🔷 Outlines';
+            
+            // Select first item in new mode
+            if (mobileSelectionMode === 'rooms') {
+                const rooms = getCurrentDeck().rooms;
+                if (rooms.length > 0) {
+                    selectedRoomIndex = 0;
+                    selectedOutlineIndex = -1;
+                }
+            } else {
+                if (config.manual_outlines && config.manual_outlines.length > 0) {
+                    selectedOutlineIndex = 0;
+                    selectedRoomIndex = -1;
+                }
+            }
+            renderRoomList();
+            renderOutlineList();
+            render();
+        }
+        
+        function cycleMobilePrev() {
+            if (mobileSelectionMode === 'rooms') {
+                const rooms = getCurrentDeck().rooms;
+                if (rooms.length === 0) return;
+                selectedRoomIndex = selectedRoomIndex <= 0 ? rooms.length - 1 : selectedRoomIndex - 1;
+                selectedOutlineIndex = -1;
+            } else {
+                if (!config.manual_outlines || config.manual_outlines.length === 0) return;
+                selectedOutlineIndex = selectedOutlineIndex <= 0 ? config.manual_outlines.length - 1 : selectedOutlineIndex - 1;
+                selectedRoomIndex = -1;
+            }
+            renderRoomList();
+            renderOutlineList();
+            render();
+        }
+        
+        function cycleMobileNext() {
+            if (mobileSelectionMode === 'rooms') {
+                const rooms = getCurrentDeck().rooms;
+                if (rooms.length === 0) return;
+                selectedRoomIndex = selectedRoomIndex >= rooms.length - 1 ? 0 : selectedRoomIndex + 1;
+                selectedOutlineIndex = -1;
+            } else {
+                if (!config.manual_outlines || config.manual_outlines.length === 0) return;
+                selectedOutlineIndex = selectedOutlineIndex >= config.manual_outlines.length - 1 ? 0 : selectedOutlineIndex + 1;
+                selectedRoomIndex = -1;
+            }
+            renderRoomList();
+            renderOutlineList();
+            render();
+        }
+
         // Help Modal Functions
         function showHelp() {
             document.getElementById('helpModal').style.display = 'block';
@@ -2588,6 +2703,30 @@
         // Touch event handlers
         function handleTouchStart(event) {
             event.preventDefault();
+            
+            // Detect multi-finger touch or start long-press timer
+            if (event.touches.length >= 2) {
+                // Multi-finger touch - toggle move mode immediately
+                if (mobileLongPressTimer) {
+                    clearTimeout(mobileLongPressTimer);
+                    mobileLongPressTimer = null;
+                }
+                toggleMobileMoveMode();
+                return;
+            }
+            
+            // Single finger touch
+            if (!isMobileMoveMode) {
+                // Not in move mode - start long-press timer (500ms)
+                mobileTouchStartTime = Date.now();
+                mobileLongPressTimer = setTimeout(() => {
+                    toggleMobileMoveMode();
+                    mobileLongPressTimer = null;
+                }, 500);
+                return; // Don't start dragging
+            }
+            
+            // In move mode - allow dragging selected item
             const touch = event.touches[0];
             const mouseEvent = new MouseEvent('mousedown', {
                 clientX: touch.clientX,
@@ -2598,6 +2737,18 @@
 
         function handleTouchMove(event) {
             event.preventDefault();
+            
+            // Cancel long-press timer if moving
+            if (mobileLongPressTimer) {
+                clearTimeout(mobileLongPressTimer);
+                mobileLongPressTimer = null;
+            }
+            
+            // Only allow dragging in move mode
+            if (!isMobileMoveMode) {
+                return;
+            }
+            
             const touch = event.touches[0];
             const mouseEvent = new MouseEvent('mousemove', {
                 clientX: touch.clientX,
@@ -2608,8 +2759,18 @@
 
         function handleTouchEnd(event) {
             event.preventDefault();
-            const mouseEvent = new MouseEvent('mouseup', {});
-            handleMouseUp(mouseEvent);
+            
+            // Cancel long-press timer
+            if (mobileLongPressTimer) {
+                clearTimeout(mobileLongPressTimer);
+                mobileLongPressTimer = null;
+            }
+            
+            // Only handle mouse up in move mode
+            if (isMobileMoveMode) {
+                const mouseEvent = new MouseEvent('mouseup', {});
+                handleMouseUp(mouseEvent);
+            }
         }
 
         // Manual Outline Functions
@@ -2736,12 +2897,10 @@
             });
         }
 
-        let selectedOutlineIndex = -1;
-        let draggedOutlineIndex = -1;
-
         function selectOutline(index) {
             selectedOutlineIndex = selectedOutlineIndex === index ? -1 : index;
             renderOutlineList();
+            render(); // Update canvas to show selection highlight
         }
 
         function editOutline(index) {
