@@ -5,6 +5,52 @@ Interactive web-based ship layout designer for Space Engineers! Create beautiful
 
 Use it here: [SE MDS Designer](https://phrasz.github.io/SE_MDS-Generator)
 
+## Two Viewing Modes
+
+The MDS Generator supports two distinct visualization approaches:
+
+### 🔹 Cross-Section View (Bow-to-Stern)
+Vertical slices through your ship, showing internal structure from front to back.
+
+![Cross-Section Demo](demo_outputs/cross_section_bow_to_stern.gif)
+
+*Example: Vertical cross-sections from bow to stern, like cutting the ship front-to-back*
+
+### 🔸 Floor Plan View (Deck-by-Deck)
+Horizontal deck layouts viewed from above, like a mall directory showing each floor.
+
+![Floor Plan Demo](demo_outputs/floor_plan_top_to_bottom.gif)
+
+*Example: Horizontal floor plans showing each deck from top to bottom*
+
+**Use Cases:**
+- **Cross-Sections**: Perfect for showing ship profile, internal systems, structural integrity
+- **Floor Plans**: Ideal for navigation, room locations, deck layouts
+
+📘 **[Read the complete viewing modes guide →](VIEWING_MODES.md)**
+
+### Show Cross-Section View
+
+Visualize your ship's internal structure with a comprehensive bow-to-stern schematic:
+
+![Traditional MDS](resources/traditional_mds_full_ship.png)
+
+*Single comprehensive cross-section showing the entire ship profile from bow to stern*
+
+### Show Multiple Decks
+
+Explore deck-by-deck layouts with animated horizontal slices:
+
+![MRI Deck Slices](resources/mri_deck_slices.gif)
+
+*Deck-by-deck horizontal slices building from bottom (Deck 6) to top (Deck 1)*
+
+Visualize the 3D stacking with perspective:
+
+![Stacked Deck Visualization](resources/stacked_deck_visualization.gif)
+
+*3D perspective showing how decks stack from bottom to top*
+
 ## Features
 
 - ✨ **Interactive Designer**: Drag & drop rooms with live updates.
@@ -14,6 +60,7 @@ Use it here: [SE MDS Designer](https://phrasz.github.io/SE_MDS-Generator)
 - 🛡️ **Auto-Hull Outlines**: Automatically generates a ship hull from your room layout.
 - 🔄 **Full Rotation**: Rotate rooms and shapes for unique designs.
 - 💾 **Auto-Save**: Progress is saved automatically in your browser.
+- 📊 **Dual View Modes**: Create cross-sections OR floor plans
 
 ## Creating Your First Ship
 
@@ -156,6 +203,27 @@ All changes automatically save to browser localStorage:
 
 ⚠️ These actions cannot be undone!
 
+## Generating Demo Animations
+
+Want to create your own animated demonstrations? Use the included Python scripts:
+
+```bash
+# Install required library (if not already installed)
+pip install Pillow
+
+# Generate both demo GIFs (cross-section + floor plan)
+python3 generate_all_demos.py
+
+# Or generate individually:
+python3 generate_cross_section_demo.py  # Bow-to-stern cross-sections
+python3 generate_floor_plan_demo.py     # Deck-by-deck floor plans
+```
+
+Output files are saved to `demo_outputs/`:
+- `cross_section_bow_to_stern.gif` - Vertical cross-sections
+- `floor_plan_top_to_bottom.gif` - Horizontal deck layouts
+- Individual PNG frames for each view
+
 ## Tips for Space Engineers
 
 1. **LCD Panel Setup**: Use large LCD panels (5+ panels in a grid recommended)
@@ -165,6 +233,7 @@ All changes automatically save to browser localStorage:
 5. **Hull Outline**: Auto-outline shows actual deck shape
 6. **Decorative Shapes**: Use outline shapes for nacelles, wings, hull details
 7. **Rotation**: Rotate rooms for angled corridors or unique layouts
+8. **View Modes**: Use cross-sections for ship profile, floor plans for navigation
 
 ## Data Storage
 
