@@ -1,0 +1,2889 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Master Display System Generator - Interactive</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Arial', sans-serif;
+            background: #000;
+            color: #fff;
+            display: flex;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        /* LCARS Color Palette */
+        :root {
+            --lcars-orange: #FF9C00;
+            --lcars-pink: #CC6699;
+            --lcars-blue: #9999FF;
+            --lcars-purple: #CC99CC;
+            --lcars-red: #CC6666;
+            --lcars-yellow: #FFCC66;
+            --lcars-tan: #FFCC99;
+            --lcars-skyblue: #6699CC;
+            --lcars-peach: #FF9966;
+            --lcars-bg: #000000;
+            --lcars-text: #FFFFFF;
+        }
+
+        /* Sidebar Controls */
+        .sidebar {
+            width: 350px;
+            background: #111;
+            padding: 20px;
+            overflow-y: auto;
+            border-right: 3px solid var(--lcars-blue);
+            transition: transform 0.3s ease;
+            position: relative;
+            z-index: 1000;
+        }
+
+        /* Mobile menu toggle */
+        .menu-toggle {
+            display: none;
+            position: fixed;
+            top: 15px;
+            left: 15px;
+            z-index: 10001;
+            background: var(--lcars-orange);
+            color: #000;
+            border: none;
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            font-size: 24px;
+            cursor: pointer;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+            font-weight: bold;
+        }
+
+        .menu-toggle:hover {
+            background: var(--lcars-yellow);
+        }
+
+        /* Mobile responsive */
+        @media (max-width: 768px) {
+            .sidebar {
+                position: fixed;
+                left: 0;
+                top: 0;
+                height: 100vh;
+                transform: translateX(-100%);
+                box-shadow: 4px 0 10px rgba(0, 0, 0, 0.5);
+                overflow-y: auto;
+                -webkit-overflow-scrolling: touch;
+                padding-bottom: 60px;
+            }
+
+            .sidebar.open {
+                transform: translateX(0);
+            }
+
+            .menu-toggle {
+                display: flex;
+                align-items: center;
+                justify-content: center;
+            }
+
+            .canvas-area {
+                width: 100%;
+            }
+            
+            .sidebar h1 {
+                text-align: right;
+            }
+        }
+
+        .sidebar h1 {
+            color: var(--lcars-blue);
+            font-size: 24px;
+            margin-bottom: 20px;
+            text-transform: uppercase;
+        }
+
+        .sidebar h2 {
+            color: var(--lcars-orange);
+            font-size: 18px;
+            margin: 20px 0 10px 0;
+            padding-top: 15px;
+            border-top: 2px solid var(--lcars-blue);
+        }
+
+        .sidebar h2.primary {
+            color: var(--lcars-orange);
+            border-top-color: var(--lcars-orange);
+        }
+
+        .sidebar h2.secondary {
+            color: var(--lcars-purple);
+            border-top-color: var(--lcars-purple);
+        }
+
+        .sidebar h2.accordion {
+            cursor: pointer;
+            position: relative;
+            padding-right: 30px;
+            user-select: none;
+        }
+
+        .sidebar h2.accordion::after {
+            content: '▼';
+            position: absolute;
+            right: 5px;
+            font-size: 14px;
+            transition: transform 0.3s;
+        }
+
+        .sidebar h2.accordion.collapsed::after {
+            transform: rotate(-90deg);
+        }
+
+        .accordion-content {
+            max-height: 2000px;
+            overflow: hidden;
+            transition: max-height 0.3s ease-out, opacity 0.3s ease-out;
+            opacity: 1;
+        }
+
+        .accordion-content.collapsed {
+            max-height: 0;
+            opacity: 0;
+        }
+
+        .control-group {
+            margin-bottom: 15px;
+        }
+
+        .control-group label {
+            display: block;
+            color: var(--lcars-skyblue);
+            font-size: 12px;
+            margin-bottom: 5px;
+            text-transform: uppercase;
+        }
+
+        .control-group input,
+        .control-group select {
+            width: 100%;
+            padding: 8px;
+            background: #222;
+            border: 1px solid var(--lcars-blue);
+            color: #fff;
+            font-size: 14px;
+            border-radius: 4px;
+        }
+
+        .control-group input[type="color"] {
+            height: 40px;
+            cursor: pointer;
+        }
+
+        .control-group input[type="checkbox"] {
+            width: auto;
+            margin-right: 10px;
+        }
+
+        .control-group input[type="range"] {
+            width: 100%;
+        }
+
+        .btn {
+            padding: 10px 20px;
+            background: var(--lcars-orange);
+            color: #000;
+            border: none;
+            border-radius: 20px;
+            cursor: pointer;
+            font-weight: bold;
+            font-size: 14px;
+            text-transform: uppercase;
+            margin: 5px 5px 5px 0;
+            transition: background 0.3s;
+        }
+
+        .btn:hover {
+            background: var(--lcars-yellow);
+        }
+
+        .btn-secondary {
+            background: var(--lcars-blue);
+        }
+
+        .btn-secondary:hover {
+            background: var(--lcars-skyblue);
+        }
+
+        .btn-danger {
+            background: var(--lcars-red);
+            color: #fff;
+        }
+
+        /* Main Canvas Area */
+        .canvas-area {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            background: #000;
+        }
+
+        .toolbar {
+            background: #111;
+            padding: 15px;
+            border-bottom: 3px solid var(--lcars-orange);
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            justify-content: flex-end;
+        }
+
+        .canvas-container {
+            flex: 1;
+            overflow: auto;
+            padding: 20px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        #mdsCanvas {
+            border: 2px solid var(--lcars-blue);
+            background: #000;
+        }
+
+        /* Room List */
+        .room-list {
+            max-height: 300px;
+            overflow-y: auto;
+            background: #0a0a0a;
+            border: 1px solid var(--lcars-blue);
+            border-radius: 4px;
+            padding: 10px;
+        }
+
+        .room-item {
+            background: #1a1a1a;
+            padding: 10px;
+            margin-bottom: 8px;
+            border-left: 4px solid var(--lcars-orange);
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .room-item:hover {
+            background: #252525;
+        }
+
+        .room-item.selected {
+            background: linear-gradient(90deg, #1a1a1a, #2a2a2a);
+            border-left: 4px solid var(--lcars-orange);
+            border-right: 2px solid var(--lcars-orange);
+            box-shadow: 0 0 15px rgba(255, 156, 0, 0.5);
+        }
+
+        .room-item.dragging {
+            background: linear-gradient(90deg, #2a2a2a, #3a3a3a);
+            border: 3px solid var(--lcars-yellow);
+            box-shadow: 0 0 20px rgba(255, 204, 102, 0.8);
+            transform: scale(1.02);
+        }
+
+        .room-item-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 5px;
+        }
+
+        .room-item-name {
+            font-weight: bold;
+            color: var(--lcars-orange);
+        }
+
+        .room-item-stats {
+            font-size: 11px;
+            color: #888;
+        }
+
+        .room-color-indicator {
+            width: 20px;
+            height: 20px;
+            border-radius: 3px;
+            border: 1px solid #fff;
+        }
+
+        /* Deck Tabs */
+        .deck-tabs {
+            display: flex;
+            gap: 5px;
+            margin-bottom: 15px;
+            flex-wrap: wrap;
+        }
+
+        .deck-tab {
+            padding: 8px 15px;
+            background: #222;
+            border: 1px solid var(--lcars-blue);
+            border-radius: 15px 15px 0 0;
+            cursor: pointer;
+            font-size: 12px;
+            text-transform: uppercase;
+            transition: all 0.3s;
+        }
+
+        .deck-tab.active {
+            background: var(--lcars-blue);
+            color: #000;
+            font-weight: bold;
+        }
+
+        .deck-tab:hover:not(.active) {
+            background: #333;
+        }
+
+        /* Status Bar */
+        .status-bar {
+            background: #111;
+            padding: 10px 20px;
+            border-top: 2px solid var(--lcars-blue);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 12px;
+            color: #888;
+        }
+
+        .status-info {
+            display: flex;
+            gap: 20px;
+        }
+
+        /* Scrollbar Styling */
+        ::-webkit-scrollbar {
+            width: 10px;
+            height: 10px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: #111;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: var(--lcars-blue);
+            border-radius: 5px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: var(--lcars-skyblue);
+        }
+
+        .value-display {
+            display: inline-block;
+            min-width: 40px;
+            color: var(--lcars-yellow);
+            font-weight: bold;
+        }
+
+        /* Modal Dialog */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.8);
+            z-index: 9999;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal-overlay.active {
+            display: flex;
+        }
+
+        .modal-dialog {
+            background: #1a1a1a;
+            border: 3px solid var(--lcars-blue);
+            border-radius: 10px;
+            width: 500px;
+            max-width: 90%;
+            max-height: 80vh;
+            overflow-y: auto;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+            position: relative;
+        }
+
+        .modal-header {
+            background: var(--lcars-blue);
+            color: #000;
+            padding: 15px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-radius: 7px 7px 0 0;
+            cursor: move;
+            user-select: none;
+        }
+
+        .modal-title {
+            font-size: 20px;
+            font-weight: bold;
+        }
+
+        .modal-close {
+            background: var(--lcars-red);
+            color: #fff;
+            border: none;
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            font-size: 20px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+        }
+
+        .modal-close:hover {
+            background: #ff3333;
+        }
+
+        .modal-body {
+            padding: 20px;
+        }
+
+        .modal-field {
+            margin-bottom: 15px;
+        }
+
+        .modal-field label {
+            display: block;
+            color: var(--lcars-skyblue);
+            font-size: 12px;
+            margin-bottom: 5px;
+            text-transform: uppercase;
+        }
+
+        .modal-field input,
+        .modal-field select {
+            width: 100%;
+            padding: 8px;
+            background: #222;
+            border: 1px solid var(--lcars-blue);
+            color: #fff;
+            font-size: 14px;
+            border-radius: 4px;
+        }
+
+        .modal-field input[type="color"] {
+            height: 50px;
+            padding: 4px;
+            cursor: pointer;
+            border: 3px solid var(--lcars-blue);
+        }
+        
+        .modal-field input[type="color"]::-webkit-color-swatch-wrapper {
+            padding: 0;
+        }
+        
+        .modal-field input[type="color"]::-webkit-color-swatch {
+            border: none;
+            border-radius: 4px;
+        }
+
+        .modal-footer {
+            padding: 15px 20px;
+            border-top: 2px solid #333;
+            display: flex;
+            gap: 10px;
+            justify-content: flex-end;
+        }
+
+        /* Help Modal - No background fade */
+        .help-modal {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 10000;
+            pointer-events: none;
+        }
+
+        .help-modal .modal-dialog {
+            pointer-events: all;
+            width: 600px;
+            max-width: 90vw;
+        }
+
+        .help-modal h3 {
+            color: var(--lcars-orange);
+            margin-top: 20px;
+            margin-bottom: 10px;
+            font-size: 18px;
+            border-bottom: 2px solid var(--lcars-orange);
+            padding-bottom: 5px;
+        }
+
+        .help-modal h3:first-child {
+            margin-top: 0;
+        }
+
+        .help-modal p {
+            color: #ccc;
+            line-height: 1.6;
+            margin-bottom: 15px;
+        }
+
+        .help-modal ul {
+            color: #ccc;
+            line-height: 1.8;
+            margin-left: 20px;
+            margin-bottom: 15px;
+        }
+
+        .help-modal li {
+            margin-bottom: 8px;
+        }
+
+        .help-modal strong {
+            color: var(--lcars-skyblue);
+        }
+
+        .help-modal em {
+            color: var(--lcars-purple);
+        }
+    </style>
+</head>
+<body>
+    <!-- Mobile Menu Toggle -->
+    <button class="menu-toggle" id="menuToggle" onclick="toggleMobileMenu()">›</button>
+
+    <!-- Modal Dialog -->
+    <div class="modal-overlay" id="modalOverlay">
+        <div class="modal-dialog">
+            <div class="modal-header">
+                <div class="modal-title" id="modalTitle">Edit Item</div>
+                <button class="modal-close" onclick="closeModal()">×</button>
+            </div>
+            <div class="modal-body" id="modalBody">
+                <!-- Dynamic content will be inserted here -->
+            </div>
+            <div class="modal-footer" id="modalFooter">
+                <button class="btn btn-danger" id="modalDeleteBtn" onclick="modalDelete()">🗑️ Delete</button>
+                <button class="btn" id="modalSaveBtn" onclick="modalSave()">💾 Save</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Help Modal (no background fade) -->
+    <div class="help-modal" id="helpModal" style="display:none;">
+        <div class="modal-dialog">
+            <div class="modal-header">
+                <div class="modal-title">❓MDS Generator Help</div>
+                <button class="modal-close" onclick="closeHelp()">×</button>
+            </div>
+            <div class="modal-body" style="max-height:70vh; overflow-y:auto;">
+                <h3>🖖Welcome to MDS Generator!</h3>
+                <p>This tool creates Multi-Deck Schematics (MDS) for Space Engineers ships with a LCARS-inspired visual style.</p>
+                
+                <h3>🚀Ship Configuration</h3>
+                <ul>
+                    <li><strong>Ship Name:</strong> Enter your ship's name (displays at the top of the MDS)</li>
+                    <li><strong>Color Palette:</strong> Choose from the Primary, Warrior (Red), Matrix (Green), Imperial (Dark Green), Traders (Gold), or Custom themes</li>
+                    <li><strong>Show Grid:</strong> Toggle grid lines on/off for alignment reference</li>
+                    <li><strong>Show Arches:</strong> Display decorative LCARS-inspired arch elements</li>
+                    <li><strong>Auto Outline:</strong> Automatically draw hull outlines around occupied deck spaces</li>
+                    <li><strong>Grid Cell Size:</strong> Adjust the size of each grid cell (affects overall scale)</li>
+                </ul>
+                
+                <h4><u>⚙️ Advanced Settings</u></h4>
+                <ul>
+                    <li><strong>Banner Font Size:</strong> Set title/subtitle font size (8-200px) - use number input for precise control</li>
+                    <li><strong>Banner Font Offset X/Y:</strong> Fine-tune title positioning with pixel offsets</li>
+                    <li><strong>Outline Padding:</strong> Control spacing between rooms and hull outline</li>
+                    <li><strong>Outline Style:</strong> Choose rounded or sharp corners for the hull outline</li>
+                    <li><strong>Ship Outline Color:</strong> Set the color of the auto-generated hull outline</li>
+                    <li><strong>Font Color:</strong> Default text color for ship configuration (separate from room fonts)</li>
+                    <li><strong>Text Shadow:</strong> Add shadow effect to text for better readability</li>
+                    <li><strong>Show Deck Name:</strong> Toggle deck labels in the output</li>
+                </ul>
+                
+                <h3>🏗️ Deck Editor</h3>
+                <ul>
+                    <li><strong>Deck Name:</strong> Name each deck level (e.g., "Bridge", "Engineering", "Cargo Bay")</li>
+                    <li><strong>Grid Width/Height:</strong> Set the dimensions of each deck's grid</li>
+                    <li><strong>+ Add Deck:</strong> Create additional deck levels for multi-story ships</li>
+                    <li><strong>Deck Tabs:</strong> Click tabs to switch between decks for editing</li>
+                    <li><strong>Delete Deck:</strong> Remove unwanted deck levels</li>
+                </ul>
+                
+                <h3>🏠 Rooms</h3>
+                <ul>
+                    <li><strong>+ Add Room:</strong> Create new rooms (opens modal with customization options)</li>
+                    <li><strong>Room Name:</strong> Label the room (e.g., "Bridge", "Medbay", "Reactor")</li>
+                    <li><strong>Width/Height:</strong> Set room dimensions in grid cells (1-30)</li>
+                    <li><strong>Background Color:</strong> Choose room color from palette picker</li>
+                    <li><strong>Font Color:</strong> Set text color independently from background</li>
+                    <li><strong>Font Size:</strong> Customize text size per room (8-32px)</li>
+                    <li><strong>Font Offset X/Y:</strong> Fine-tune text positioning within the room</li>
+                    <li><strong>Rotation:</strong> Rotate rooms 0-360° using the slider (updates live!)</li>
+                    <li><strong>Drag & Drop:</strong> Drag rooms from the list onto the canvas grid</li>
+                    <li><strong>Double-Click:</strong> Edit room properties</li>
+                    <li><strong>Single-Click:</strong> Select/highlight a room</li>
+                </ul>
+                
+                <h3>✏️ Outline Shapes</h3>
+                <ul>
+                    <li><strong>+ Add Outline Shape:</strong> Create decorative shapes (opens modal)</li>
+                    <li><strong>Shape Type:</strong> Choose Rectangle, Ellipse, or Triangle</li>
+                    <li><strong>Width/Height:</strong> Set shape dimensions in grid cells</li>
+                    <li><strong>Color:</strong> Choose shape fill color</li>
+                    <li><strong>Z-Index:</strong> Control layering (0=back, 100=front) - shapes draw behind rooms</li>
+                    <li><strong>Rotation:</strong> Rotate shapes 0-360° using the slider (updates live!)</li>
+                    <li><strong>Show Border:</strong> Toggle shape border on/off (auto-hides when overlapping rooms)</li>
+                    <li><strong>Triangles:</strong> Point upward by default - use rotation to change orientation</li>
+                    <li><strong>Use Cases:</strong> Hull sections, nacelles, wings, decorative elements</li>
+                </ul>
+                
+                <h3>💾 Import/Export</h3>
+                <ul>
+                    <li><strong>Export JSON:</strong> Save entire ship design as a JSON file for backup or sharing</li>
+                    <li><strong>Import JSON:</strong> Load a previously saved ship design (replaces current design)</li>
+                    <li><strong>Export PNG:</strong> Generate a high-quality image of your MDS for documentation or display</li>
+                    <li><strong>Auto-Save:</strong> All changes are automatically saved to browser localStorage</li>
+                </ul>
+                <h3>🎨 Custom Palette Editor</h3>
+                
+                <ul>
+                    <li><strong>Edit Colors:</strong> Customize every color in the palette (accent1, accent2, hull, border, etc.)</li>
+                    <li><strong>Export Palette:</strong> Save your custom palette as a JSON file</li>
+                    <li><strong>Import Palette:</strong> Load a previously saved palette</li>
+                    <li><strong>Persistence:</strong> Custom palettes are saved automatically and persist across sessions</li>
+                </ul>
+
+                <h3>💰 Tips & 🧠 Thoughts</h3>
+                <ul>
+                    <li><strong>Live Preview:</strong> All rotation and font changes update instantly while editing</li>
+                    <li><strong>Grid Snapping:</strong> Objects automatically align to grid cells when dragged</li>
+                    <li><strong>Refresh Button:</strong> Click "Refresh" if something doesn't render correctly</li>
+                    <li><strong>Layering:</strong> Outline shapes always draw behind rooms (Z-index controls shape layering only)</li>
+                    <li><strong>Custom Workflows:</strong> Create outline shapes first for hull sections, then add rooms on top</li>
+                    <li><strong>Rotation Tricks:</strong> Combine rotated triangles for nacelles, rotated rectangles for angled corridors</li>
+                </ul>
+                
+            </div>
+            <div class="modal-footer">
+                <p><em>Created for Space Engineers enthusiasts. 🖖</em></p>
+                <br>
+                <button class="btn" onclick="closeHelp()">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Sidebar Controls -->
+    <div class="sidebar">
+        <h1>🖖 MDS Generator</h1>
+        
+        <h2 class="primary">Ship Configuration</h2>
+        <div class="control-group">
+            <label>Ship Name</label>
+            <input type="text" id="shipName" value="SS Endeavor" />
+        </div>
+
+        <h2 class="accordion secondary collapsed" onclick="toggleAccordion(this)">Advanced Settings</h2>
+        <div class="accordion-content collapsed" id="advancedSettingsContent">
+            <div class="control-group">
+                <label>
+                    <input type="checkbox" id="showGrid" checked />
+                    Show Grid Lines
+                </label>
+            </div>
+
+            <div class="control-group">
+                <label>
+                    <input type="checkbox" id="showArches" checked />
+                    Show LCARS Arches
+                </label>
+            </div>
+
+            <div class="control-group">
+                <label>
+                    <input type="checkbox" id="showDeckName" checked />
+                    Show Deck Name
+                </label>
+            </div>
+
+            <div class="control-group">
+                <label>Font Color</label>
+                <input type="color" id="fontColor" value="#000000" />
+            </div>
+
+            <div class="control-group">
+                <label>Banner Font Size (px)</label>
+                <input type="number" id="bannerFontSize" min="8" max="200" value="24" />
+            </div>
+
+            <div class="control-group">
+                <label>Banner Font Offset X (px)</label>
+                <input type="number" id="bannerFontOffsetX" value="0" min="-100" max="100" />
+            </div>
+
+            <div class="control-group">
+                <label>Banner Font Offset Y (px)</label>
+                <input type="number" id="bannerFontOffsetY" value="0" min="-100" max="100" />
+            </div>
+        </div>
+
+        <h2 class="accordion secondary collapsed" onclick="toggleAccordion(this)">Manual Outline Mode</h2>
+        <div class="accordion-content collapsed" id="manualOutlineControls">
+            <div class="control-group">
+                <button class="btn btn-secondary" onclick="addManualOutline()">+ Add Outline Shape</button>
+            </div>
+            <div class="control-group">
+                <label>Outline Shapes</label>
+                <div class="room-list" id="outlineShapeList"></div>
+            </div>
+        </div>
+
+        <h2 class="primary">Deck Editor</h2>
+        <div class="deck-tabs" id="deckTabs"></div>
+        <div class="control-group">
+            <button class="btn" onclick="addDeck()">+ Add Deck</button>
+            <button class="btn btn-danger" onclick="removeDeck()">- Remove Deck</button>
+        </div>
+
+        <div class="control-group">
+            <label>Deck Name</label>
+            <input type="text" id="deckName" value="Main Deck" />
+        </div>
+
+        <h2 class="accordion secondary collapsed" onclick="toggleAccordion(this)">Display Settings</h2>
+        <div class="accordion-content collapsed" id="displaySettingsContent">
+        <div class="control-group">
+            <label>Grid Width</label>
+            <input type="number" id="gridWidth" value="10" min="5" max="30" />
+        </div>
+
+        <div class="control-group">
+            <label>Grid Height</label>
+            <input type="number" id="gridHeight" value="8" min="5" max="30" />
+        </div>
+
+        <div class="control-group">
+            <label>
+                <input type="checkbox" id="autoOutline" checked />
+                Auto Hull Outline
+            </label>
+        </div>
+
+        <div class="control-group">
+            <label>Cell Size (px): <span class="value-display" id="cellSizeValue">60</span></label>
+            <input type="range" id="cellSize" min="30" max="100" value="60" />
+        </div>
+
+        <div class="control-group">
+            <label>Hull Outline Thickness: <span class="value-display" id="outlinePaddingValue">0.5</span></label>
+            <input type="range" id="outlinePadding" min="0.1" max="1.0" step="0.1" value="0.5" />
+        </div>
+
+        <div class="control-group">
+            <label>Outline Style</label>
+            <select id="outlineStyle">
+                <option value="rounded">Rounded</option>
+                <option value="sharp">Sharp</option>
+            </select>
+        </div>
+
+        <div class="control-group">
+            <label>Hull Outline Color</label>
+            <input type="color" id="shipOutlineColor" value="#767676" />
+        </div>
+        </div>
+
+        <h2 class="secondary">Rooms</h2>
+        <div class="control-group">
+            <button class="btn" onclick="addRoom()">+ Add Room</button>
+        </div>
+
+        <div class="room-list" id="roomList"></div>
+
+        <h2 class="primary">Ship Images</h2>
+        <div class="control-group">
+            <button class="btn" onclick="exportSVG()">📄 Download SVG</button>
+            <button class="btn" onclick="exportPNG()">🖼️ Download PNG</button>
+        </div>
+
+        <h2 class="primary">Ship Data</h2>
+        <div class="control-group">
+            <button class="btn" onclick="exportShip()">💾 Export Ship (.json)</button>
+            <button class="btn btn-secondary" onclick="importShip()">📂 Import Ship (.json)</button>
+            <input type="file" id="shipFileInput" accept=".json" style="display:none" />
+        </div>
+
+        <h2 class="accordion primary collapsed" onclick="toggleAccordion(this)">Settings</h2>
+        <div class="accordion-content collapsed" id="settingsContent">
+            <div class="control-group">
+                <label>Color Palette</label>
+                <select id="colorPalette">
+                    <option value="lcars">Classic (Standard Alliance)</option>
+                    <option value="warriors">Crimson (Warrior Clans)</option>
+                    <option value="collective">Matrix (The Collective)</option>
+                    <option value="imperial">Imperial (Star Empire)</option>
+                    <option value="traders">Golden (Trade Consortium)</option>
+                    <option value="custom">Custom Palette</option>
+                </select>
+            </div>
+            
+            <div class="control-group" id="customPaletteControls" style="display:none;">
+                <button class="btn btn-secondary" onclick="editCustomPalette()">🎨 Edit Custom Palette</button>
+            </div>
+            
+            <div class="control-group">
+                <label>
+                    <input type="checkbox" id="textShadow" />
+                    Text Drop Shadow
+                </label>
+            </div>
+            
+            <div class="control-group">
+                <button class="btn btn-secondary" onclick="exportSettings()">⚙️ Export Settings</button>
+                <button class="btn btn-secondary" onclick="importSettings()">⚙️ Import Settings</button>
+                <input type="file" id="settingsFileInput" accept=".json" style="display:none" />
+            </div>
+            
+            <hr class="secondary" />
+            <h3 style="color: var(--lcars-red); margin-top: 20px; margin-bottom: 10px; font-size: 16px;">⚠️ DANGER ZONE</h3>
+            <div class="control-group">
+                <button class="btn btn-danger" onclick="clearAllRooms()">🗑️ Clear All Rooms</button>
+                <p style="color: #888; font-size: 11px; margin-top: 10px;">Removes all rooms from the current deck. This cannot be undone!</p>
+            </div>
+            <div class="control-group">
+                <button class="btn btn-danger" onclick="clearLocalStorage()">💥 SELF DESTRUCT</button>
+                <p style="color: #888; font-size: 11px; margin-top: 10px;">Clears all saved ship data and settings from browser storage. This cannot be undone!</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Canvas Area -->
+    <div class="canvas-area">
+        <div class="toolbar">
+            <button class="btn" onclick="render()">🔄 Refresh</button>
+            <button class="btn btn-secondary" onclick="showHelp()">❓ Help</button>
+        </div>
+
+        <div class="canvas-container">
+            <svg id="mdsCanvas" width="800" height="600"></svg>
+        </div>
+
+        <div class="status-bar">
+            <div class="status-info">
+                <span id="statusDeck">Deck: 1</span>
+                <span id="statusRooms">Rooms: 0</span>
+                <span id="statusCoverage">Coverage: 0%</span>
+            </div>
+            <div>Space Engineers MDS Generator v2.0</div>
+        </div>
+    </div>
+
+    <script>
+        // LCARS Color Palette - Define FIRST before using
+        const LCARS_COLORS = {
+            ORANGE: "#FF9C00",
+            PINK: "#CC6699",
+            BLUE: "#9999FF",
+            PURPLE: "#CC99CC",
+            RED: "#CC6666",
+            YELLOW: "#FFCC66",
+            TAN: "#FFCC99",
+            SKY_BLUE: "#6699CC",
+            PEACH: "#FF9966",
+            BACKGROUND: "#000000",
+            TEXT: "#FFFFFF",
+            BORDER: "#9999FF",
+            GRID: "#333333"
+        };
+
+        const COLOR_PALETTES = {
+            lcars: {
+                name: "Classic (Standard Alliance)",
+                background: "#000000",
+                text: "#FFFFFF",
+                border: "#9999FF",
+                grid: "#333333",
+                hull: "#767676",
+                accent1: "#FF9C00",
+                accent2: "#6699CC",
+                colors: {
+                    ORANGE: "#FF9C00",
+                    PINK: "#CC6699",
+                    BLUE: "#9999FF",
+                    PURPLE: "#CC99CC",
+                    RED: "#CC6666",
+                    YELLOW: "#FFCC66",
+                    TAN: "#FFCC99",
+                    SKY_BLUE: "#6699CC",
+                    PEACH: "#FF9966"
+                }
+            },
+            warriors: {
+                name: "Crimson (Warrior Clans)",
+                background: "#0a0000",
+                text: "#FFFFFF",
+                border: "#8B0000",
+                grid: "#330000",
+                hull: "#4a0000",
+                accent1: "#8B0000",
+                accent2: "#FFD700",
+                colors: {
+                    DARK_RED: "#8B0000",
+                    BLOOD_RED: "#CC0000",
+                    GOLD: "#FFD700",
+                    DARK_GOLD: "#B8860B",
+                    STEEL: "#708090",
+                    BRONZE: "#CD7F32",
+                    CRIMSON: "#DC143C",
+                    RUST: "#B7410E",
+                    AMBER: "#FFBF00"
+                }
+            },
+            collective: {
+                name: "Matrix (The Collective)",
+                background: "#000a00",
+                text: "#00FF00",
+                border: "#00AA00",
+                grid: "#003300",
+                hull: "#004400",
+                accent1: "#00FF00",
+                accent2: "#00AA00",
+                colors: {
+                    BRIGHT_GREEN: "#00FF00",
+                    LIME: "#00CC00",
+                    FOREST: "#00AA00",
+                    DARK_GREEN: "#008800",
+                    TEAL: "#008080",
+                    CYAN: "#00FFFF",
+                    STEEL: "#708090",
+                    OLIVE: "#556B2F",
+                    MINT: "#98FF98"
+                }
+            },
+            imperial: {
+                name: "Imperial (Star Empire)",
+                background: "#000a00",
+                text: "#FFFFFF",
+                border: "#228B22",
+                grid: "#1a3a1a",
+                hull: "#2a4a2a",
+                accent1: "#228B22",
+                accent2: "#FFD700",
+                colors: {
+                    FOREST_GREEN: "#228B22",
+                    IMPERIAL_GREEN: "#2E8B57",
+                    GOLD: "#FFD700",
+                    SILVER: "#C0C0C0",
+                    JADE: "#00A86B",
+                    EMERALD: "#50C878",
+                    DARK_GREEN: "#006400",
+                    BRONZE: "#CD7F32",
+                    SAGE: "#87AE73"
+                }
+            },
+            traders: {
+                name: "Golden (Trade Consortium)",
+                background: "#1a0a00",
+                text: "#FFFFFF",
+                border: "#FFD700",
+                grid: "#3a2a1a",
+                hull: "#4a3a2a",
+                accent1: "#FFD700",
+                accent2: "#FF8C00",
+                colors: {
+                    GOLD: "#FFD700",
+                    ORANGE: "#FF8C00",
+                    BRONZE: "#CD7F32",
+                    COPPER: "#B87333",
+                    AMBER: "#FFBF00",
+                    BROWN: "#8B4513",
+                    TAN: "#D2B48C",
+                    RUST: "#B7410E",
+                    YELLOW: "#FFD700"
+                }
+            },
+            custom: {
+                name: "Custom Palette",
+                background: "#000000",
+                text: "#FFFFFF",
+                border: "#9999FF",
+                grid: "#333333",
+                hull: "#767676",
+                accent1: "#FF9C00",
+                accent2: "#6699CC",
+                colors: {
+                    COLOR_1: "#FF9C00",
+                    COLOR_2: "#CC6699",
+                    COLOR_3: "#9999FF",
+                    COLOR_4: "#CC99CC",
+                    COLOR_5: "#CC6666",
+                    COLOR_6: "#FFCC66",
+                    COLOR_7: "#FFCC99",
+                    COLOR_8: "#6699CC",
+                    COLOR_9: "#FF9966"
+                }
+            }
+        };
+
+        const ROOM_TYPE_COLORS = {
+            cargo: 0,        // First accent color
+            helm: 1,         // Second accent
+            bridge: 1,
+            medical: 2,      // Third color
+            medbay: 2,
+            armory: 3,       // Fourth color
+            weapons: 3,
+            engineering: 4,  // Fifth color
+            reactor: 4,
+            power: 4,
+            quarters: 5,     // Sixth color
+            sleeping: 5,
+            rec: 6,          // Seventh color
+            recreation: 6,
+            lab: 7,          // Eighth color
+            laboratory: 7,
+            storage: 8,      // Ninth color
+            hangar: 0
+        };
+
+        // Global State - NOW safe to reference COLOR_PALETTES
+        let config = {
+            name: "SE Endeavor",
+            decks: [
+                {
+                    number: 1,
+                    name: "Main Deck",
+                    grid_width: 10,
+                    grid_height: 8,
+                    rooms: [],
+                    manual_outlines: []
+                }
+            ],
+            grid_cell_size: 60,
+            padding: 40,
+            font_size: 14,
+            text_color: "#000000",
+            text_shadow: false,
+            show_deck_name: true,
+            ship_outline_color: "#767676",
+            show_arches: true,
+            show_grid: true,
+            outline_style: "rounded",
+            auto_outline: true,
+            outline_padding: 0.5,
+            color_palette: "lcars",
+            manual_outline_mode: false
+        };
+
+        let currentDeckIndex = 0;
+        let selectedRoomIndex = -1;
+        let draggedRoomIndex = -1;
+        let dragOffset = { x: 0, y: 0 };
+        let isDragging = false;
+        let currentPalette = COLOR_PALETTES.lcars;
+
+        // Initialize
+        function init() {
+            // Load from localStorage first
+            loadFromLocalStorage();
+            
+            setupEventListeners();
+            syncUIFromConfig();
+            renderDeckTabs();
+            renderRoomList();
+            renderOutlineList();
+            
+            // Ensure render happens after DOM is fully ready
+            setTimeout(() => {
+                render();
+            }, 100);
+        }
+
+        // LocalStorage functions
+        function saveToLocalStorage() {
+            try {
+                // Include custom palette in config
+                config.custom_palette = COLOR_PALETTES.custom;
+                localStorage.setItem('mds_config', JSON.stringify(config));
+            } catch (error) {
+                console.error('Failed to save to localStorage:', error);
+            }
+        }
+
+        function loadFromLocalStorage() {
+            try {
+                const saved = localStorage.getItem('mds_config');
+                if (saved) {
+                    const loadedConfig = JSON.parse(saved);
+                    
+                    // Merge loaded config with defaults to ensure all properties exist
+                    config = { ...config, ...loadedConfig };
+                    
+                    // Restore custom palette if it exists
+                    if (config.custom_palette) {
+                        COLOR_PALETTES.custom = config.custom_palette;
+                    }
+                    
+                    // Ensure color_palette is set
+                    if (!config.color_palette) {
+                        config.color_palette = 'lcars';
+                    }
+                    
+                    currentPalette = COLOR_PALETTES[config.color_palette];
+                    
+                    // Show custom palette controls if custom is selected
+                    if (config.color_palette === 'custom') {
+                        const customControls = document.getElementById('customPaletteControls');
+                        if (customControls) customControls.style.display = 'block';
+                    }
+                }
+            } catch (error) {
+                console.error('Failed to load from localStorage:', error);
+            }
+        }
+
+        function clearLocalStorage() {
+            if (confirm('⚠️ WARNING: This will DELETE all saved ship data and settings!\n\nThis action cannot be undone. Are you absolutely sure?')) {
+                localStorage.removeItem('mds_config');
+                alert('💥 Local storage cleared! The page will now reload with default settings.');
+                location.reload();
+            }
+        }
+
+        function setupEventListeners() {
+            // Ship settings
+            document.getElementById('shipName').addEventListener('input', (e) => {
+                config.name = e.target.value;
+                saveToLocalStorage();
+                render();
+            });
+
+            // Deck settings
+            document.getElementById('deckName').addEventListener('input', (e) => {
+                getCurrentDeck().name = e.target.value;
+                renderDeckTabs();
+                saveToLocalStorage();
+                render();
+            });
+
+            document.getElementById('gridWidth').addEventListener('input', (e) => {
+                getCurrentDeck().grid_width = parseInt(e.target.value);
+                saveToLocalStorage();
+                render();
+            });
+
+            document.getElementById('gridHeight').addEventListener('input', (e) => {
+                getCurrentDeck().grid_height = parseInt(e.target.value);
+                saveToLocalStorage();
+                render();
+            });
+
+            // Display settings
+            document.getElementById('showGrid').addEventListener('change', (e) => {
+                config.show_grid = e.target.checked;
+                saveToLocalStorage();
+                render();
+            });
+
+            document.getElementById('showArches').addEventListener('change', (e) => {
+                config.show_arches = e.target.checked;
+                saveToLocalStorage();
+                render();
+            });
+
+            document.getElementById('autoOutline').addEventListener('change', (e) => {
+                config.auto_outline = e.target.checked;
+                saveToLocalStorage();
+                render();
+            });
+
+            document.getElementById('cellSize').addEventListener('input', (e) => {
+                config.grid_cell_size = parseInt(e.target.value);
+                document.getElementById('cellSizeValue').textContent = e.target.value;
+                saveToLocalStorage();
+                render();
+            });
+
+            document.getElementById('bannerFontSize').addEventListener('input', (e) => {
+                config.banner_font_size = parseInt(e.target.value);
+                saveToLocalStorage();
+                render();
+            });
+
+            document.getElementById('outlinePadding').addEventListener('input', (e) => {
+                config.outline_padding = parseFloat(e.target.value);
+                document.getElementById('outlinePaddingValue').textContent = e.target.value;
+                saveToLocalStorage();
+                render();
+            });
+
+            document.getElementById('outlineStyle').addEventListener('change', (e) => {
+                config.outline_style = e.target.value;
+                saveToLocalStorage();
+                render();
+            });
+
+            document.getElementById('shipOutlineColor').addEventListener('input', (e) => {
+                config.ship_outline_color = e.target.value;
+                saveToLocalStorage();
+                render();
+            });
+
+            document.getElementById('fontColor').addEventListener('input', (e) => {
+                config.text_color = e.target.value;
+                saveToLocalStorage();
+                render();
+            });
+
+            document.getElementById('bannerFontOffsetX').addEventListener('input', (e) => {
+                config.banner_font_offset_x = parseInt(e.target.value) || 0;
+                saveToLocalStorage();
+                render();
+            });
+
+            document.getElementById('bannerFontOffsetY').addEventListener('input', (e) => {
+                config.banner_font_offset_y = parseInt(e.target.value) || 0;
+                saveToLocalStorage();
+                render();
+            });
+
+            document.getElementById('textShadow').addEventListener('change', (e) => {
+                config.text_shadow = e.target.checked;
+                saveToLocalStorage();
+                render();
+            });
+
+            document.getElementById('showDeckName').addEventListener('change', (e) => {
+                config.show_deck_name = e.target.checked;
+                saveToLocalStorage();
+                render();
+            });
+
+            // File inputs
+            document.getElementById('shipFileInput').addEventListener('change', handleShipImport);
+            document.getElementById('settingsFileInput').addEventListener('change', handleSettingsImport);
+            
+            // Color palette
+            document.getElementById('colorPalette').addEventListener('change', (e) => {
+                config.color_palette = e.target.value;
+                currentPalette = COLOR_PALETTES[e.target.value];
+                
+                // Show/hide custom palette controls
+                const customControls = document.getElementById('customPaletteControls');
+                customControls.style.display = (e.target.value === 'custom') ? 'block' : 'none';
+                
+                applyColorPalette();
+                saveToLocalStorage();
+                render();
+            });
+            
+            // Canvas drag and drop - Mouse events
+            const svg = document.getElementById('mdsCanvas');
+            svg.addEventListener('mousedown', handleMouseDown);
+            svg.addEventListener('mousemove', handleMouseMove);
+            svg.addEventListener('mouseup', handleMouseUp);
+            svg.addEventListener('mouseleave', handleMouseUp);
+            
+            // Canvas drag and drop - Touch events
+            svg.addEventListener('touchstart', handleTouchStart, { passive: false });
+            svg.addEventListener('touchmove', handleTouchMove, { passive: false });
+            svg.addEventListener('touchend', handleTouchEnd);
+            svg.addEventListener('touchcancel', handleTouchEnd);
+        }
+
+        function syncUIFromConfig() {
+            document.getElementById('shipName').value = config.name;
+            document.getElementById('showGrid').checked = config.show_grid;
+            document.getElementById('showArches').checked = config.show_arches;
+            document.getElementById('autoOutline').checked = config.auto_outline;
+            document.getElementById('cellSize').value = config.grid_cell_size;
+            document.getElementById('bannerFontSize').value = config.banner_font_size || 24;
+            document.getElementById('bannerFontOffsetX').value = config.banner_font_offset_x || 0;
+            document.getElementById('bannerFontOffsetY').value = config.banner_font_offset_y || 0;
+            document.getElementById('outlinePadding').value = config.outline_padding;
+            document.getElementById('outlineStyle').value = config.outline_style;
+            document.getElementById('shipOutlineColor').value = config.ship_outline_color;
+            document.getElementById('fontColor').value = config.text_color;
+            document.getElementById('textShadow').checked = config.text_shadow || false;
+            document.getElementById('showDeckName').checked = config.show_deck_name !== false;
+            document.getElementById('colorPalette').value = config.color_palette || 'lcars';
+            
+            // Show/hide custom palette controls based on current palette
+            const customControls = document.getElementById('customPaletteControls');
+            if (customControls) {
+                customControls.style.display = (config.color_palette === 'custom') ? 'block' : 'none';
+            }
+            
+            // Update value displays (check if they exist first)
+            const cellSizeValue = document.getElementById('cellSizeValue');
+            if (cellSizeValue) cellSizeValue.textContent = config.grid_cell_size;
+            
+            const outlinePaddingValue = document.getElementById('outlinePaddingValue');
+            if (outlinePaddingValue) outlinePaddingValue.textContent = config.outline_padding;
+            
+            currentPalette = COLOR_PALETTES[config.color_palette || 'lcars'];
+            applyColorPalette();
+            
+            syncDeckUI();
+        }
+
+        function syncDeckUI() {
+            const deck = getCurrentDeck();
+            document.getElementById('deckName').value = deck.name;
+            document.getElementById('gridWidth').value = deck.grid_width;
+            document.getElementById('gridHeight').value = deck.grid_height;
+        }
+
+        function getCurrentDeck() {
+            return config.decks[currentDeckIndex];
+        }
+
+        function applyColorPalette() {
+            // Update UI colors based on selected palette
+            document.body.style.background = currentPalette.background;
+            
+            // Update CSS variables if needed
+            const root = document.documentElement;
+            root.style.setProperty('--lcars-orange', currentPalette.accent1);
+            root.style.setProperty('--lcars-blue', currentPalette.border);
+            root.style.setProperty('--lcars-skyblue', currentPalette.accent2);
+            root.style.setProperty('--lcars-purple', currentPalette.accent2); // Use accent2 for secondary sections
+        }
+
+        function getPaletteColor(colorKey) {
+            if (currentPalette.colors[colorKey]) {
+                return currentPalette.colors[colorKey];
+            }
+            // Fallback to first color in palette
+            return Object.values(currentPalette.colors)[0];
+        }
+
+        // Deck Management
+        function renderDeckTabs() {
+            const container = document.getElementById('deckTabs');
+            container.innerHTML = '';
+            
+            config.decks.forEach((deck, index) => {
+                const tab = document.createElement('div');
+                tab.className = 'deck-tab' + (index === currentDeckIndex ? ' active' : '');
+                tab.textContent = `Deck ${deck.number}`;
+                tab.onclick = () => selectDeck(index);
+                container.appendChild(tab);
+            });
+        }
+
+        function selectDeck(index) {
+            currentDeckIndex = index;
+            selectedRoomIndex = -1;
+            syncDeckUI();
+            renderDeckTabs();
+            renderRoomList();
+            render();
+        }
+
+        function addDeck() {
+            const newDeckNumber = config.decks.length + 1;
+            config.decks.push({
+                number: newDeckNumber,
+                name: `Deck ${newDeckNumber}`,
+                grid_width: 10,
+                grid_height: 8,
+                rooms: [],
+                manual_outlines: []
+            });
+            currentDeckIndex = config.decks.length - 1;
+            saveToLocalStorage();
+            syncDeckUI();
+            renderDeckTabs();
+            renderRoomList();
+            render();
+        }
+
+        function removeDeck() {
+            if (config.decks.length <= 1) {
+                alert('Cannot remove the last deck!');
+                return;
+            }
+            if (confirm('Remove this deck and all its rooms?')) {
+                config.decks.splice(currentDeckIndex, 1);
+                currentDeckIndex = Math.max(0, currentDeckIndex - 1);
+                // Renumber decks
+                config.decks.forEach((deck, i) => deck.number = i + 1);
+                saveToLocalStorage();
+                syncDeckUI();
+                renderDeckTabs();
+                renderRoomList();
+                render();
+            }
+        }
+
+        // Room Management
+        function addRoom() {
+            openModal('Add New Room', [
+                { id: 'newRoomName', label: 'Room Name', type: 'text', value: 'New Room' },
+                { id: 'newRoomWidth', label: 'Width (grid cells)', type: 'number', value: 2, min: 1, max: 30 },
+                { id: 'newRoomHeight', label: 'Height (grid cells)', type: 'number', value: 2, min: 1, max: 30 }
+            ],
+            () => {
+                // Add callback
+                const roomName = document.getElementById('newRoomName').value;
+                const width = parseInt(document.getElementById('newRoomWidth').value);
+                const height = parseInt(document.getElementById('newRoomHeight').value);
+                const color = getRoomColor(roomName);
+                
+                getCurrentDeck().rooms.push({
+                    name: roomName,
+                    area: width * height,
+                    size: [width, height],
+                    position: [0, 0],
+                    color: color,
+                    rotation: 0
+                });
+                
+                saveToLocalStorage();
+                renderRoomList();
+                render();
+            },
+            null,
+            '➕ Add'); // No delete button, use "Add" text
+        }
+
+        function getRoomColor(roomName) {
+            const nameLower = roomName.toLowerCase();
+            const paletteColors = Object.values(currentPalette.colors);
+            
+            for (const [keyword, colorIndex] of Object.entries(ROOM_TYPE_COLORS)) {
+                if (nameLower.includes(keyword)) {
+                    // Use color index to get from current palette
+                    return paletteColors[colorIndex % paletteColors.length];
+                }
+            }
+            // Random color from current palette
+            return paletteColors[Math.floor(Math.random() * paletteColors.length)];
+        }
+
+        function renderRoomList() {
+            const container = document.getElementById('roomList');
+            const rooms = getCurrentDeck().rooms;
+            
+            container.innerHTML = rooms.length === 0 
+                ? '<div style="text-align:center;color:#666;padding:20px;">No rooms yet</div>'
+                : '';
+            
+            rooms.forEach((room, index) => {
+                const item = document.createElement('div');
+                let className = 'room-item';
+                if (index === selectedRoomIndex) className += ' selected';
+                if (index === draggedRoomIndex) className += ' dragging';
+                item.className = className;
+                
+                const hasPosition = room.position && room.size;
+                const positionText = hasPosition 
+                    ? `${room.size[0]}x${room.size[1]} @ (${room.position[0]},${room.position[1]})`
+                    : `Area: ${room.area} (auto)`;
+                
+                item.innerHTML = `
+                    <div class="room-item-header">
+                        <div class="room-item-name">${room.name}</div>
+                        <div class="room-color-indicator" style="background:${room.color}"></div>
+                    </div>
+                    <div class="room-item-stats">${positionText}</div>
+                `;
+                
+                // Double-click to edit (desktop)
+                item.addEventListener('dblclick', (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    editRoom(index);
+                });
+                
+                // Single click to select
+                item.addEventListener('click', (e) => {
+                    if (e.detail === 1) { // Only on single click, not double
+                        selectRoom(index);
+                    }
+                });
+                
+                // Long press to edit (mobile) - 500ms
+                let longPressTimer = null;
+                item.addEventListener('touchstart', (e) => {
+                    longPressTimer = setTimeout(() => {
+                        editRoom(index);
+                    }, 500);
+                });
+                
+                item.addEventListener('touchend', () => {
+                    if (longPressTimer) {
+                        clearTimeout(longPressTimer);
+                        longPressTimer = null;
+                    }
+                });
+                
+                item.addEventListener('touchmove', () => {
+                    if (longPressTimer) {
+                        clearTimeout(longPressTimer);
+                        longPressTimer = null;
+                    }
+                });
+                
+                container.appendChild(item);
+            });
+            
+            updateStatus();
+        }
+
+        function selectRoom(index) {
+            selectedRoomIndex = selectedRoomIndex === index ? -1 : index;
+            renderRoomList();
+        }
+
+        function editRoom(index) {
+            const room = getCurrentDeck().rooms[index];
+            
+            openModal('Edit Room', [
+                { id: 'roomName', label: 'Room Name', type: 'text', value: room.name },
+                { id: 'roomWidth', label: 'Width (grid cells)', type: 'number', value: room.size ? room.size[0] : 2, min: 1, max: 30 },
+                { id: 'roomHeight', label: 'Height (grid cells)', type: 'number', value: room.size ? room.size[1] : 2, min: 1, max: 30 },
+                { id: 'roomColor', label: 'Background Color', type: 'color', value: room.color },
+                { id: 'roomFontColor', label: 'Font Color', type: 'color', value: room.font_color || '#000000' },
+                { id: 'roomFontSize', label: 'Font Size (px)', type: 'number', value: room.font_size || 14, min: 8, max: 32 },
+                { id: 'roomFontOffsetX', label: 'Font Offset X (px)', type: 'number', value: room.font_offset ? room.font_offset[0] : 0, min: -100, max: 100 },
+                { id: 'roomFontOffsetY', label: 'Font Offset Y (px)', type: 'number', value: room.font_offset ? room.font_offset[1] : 0, min: -100, max: 100 },
+                { id: 'roomRotation', label: 'Rotation (degrees)', type: 'range', value: room.rotation || 0, min: 0, max: 360 }
+            ], 
+            () => {
+                // Save callback
+                room.name = document.getElementById('roomName').value;
+                const width = parseInt(document.getElementById('roomWidth').value);
+                const height = parseInt(document.getElementById('roomHeight').value);
+                room.size = [width, height];
+                room.area = width * height;
+                room.color = document.getElementById('roomColor').value;
+                room.font_color = document.getElementById('roomFontColor').value;
+                room.font_size = parseInt(document.getElementById('roomFontSize').value) || 14;
+                room.font_offset = [
+                    parseInt(document.getElementById('roomFontOffsetX').value) || 0,
+                    parseInt(document.getElementById('roomFontOffsetY').value) || 0
+                ];
+                room.rotation = parseInt(document.getElementById('roomRotation').value) || 0;
+                
+                saveToLocalStorage();
+                renderRoomList();
+                render();
+            },
+            () => {
+                // Delete callback
+                getCurrentDeck().rooms.splice(index, 1);
+                selectedRoomIndex = -1;
+                saveToLocalStorage();
+                renderRoomList();
+                render();
+            });
+            
+            // Add live preview for room editing
+            setTimeout(() => {
+                const liveUpdateRoom = () => {
+                    room.name = document.getElementById('roomName').value;
+                    const width = parseInt(document.getElementById('roomWidth').value) || room.size[0];
+                    const height = parseInt(document.getElementById('roomHeight').value) || room.size[1];
+                    room.size = [width, height];
+                    room.area = width * height;
+                    room.color = document.getElementById('roomColor').value;
+                    room.font_color = document.getElementById('roomFontColor').value;
+                    room.font_size = parseInt(document.getElementById('roomFontSize').value) || 14;
+                    room.font_offset = [
+                        parseInt(document.getElementById('roomFontOffsetX').value) || 0,
+                        parseInt(document.getElementById('roomFontOffsetY').value) || 0
+                    ];
+                    room.rotation = parseInt(document.getElementById('roomRotation').value) || 0;
+                    render();
+                };
+                
+                document.getElementById('roomName').addEventListener('input', liveUpdateRoom);
+                document.getElementById('roomWidth').addEventListener('input', liveUpdateRoom);
+                document.getElementById('roomHeight').addEventListener('input', liveUpdateRoom);
+                document.getElementById('roomColor').addEventListener('input', liveUpdateRoom);
+                document.getElementById('roomFontColor').addEventListener('input', liveUpdateRoom);
+                document.getElementById('roomFontSize').addEventListener('input', liveUpdateRoom);
+                document.getElementById('roomFontOffsetX').addEventListener('input', liveUpdateRoom);
+                document.getElementById('roomFontOffsetY').addEventListener('input', liveUpdateRoom);
+                document.getElementById('roomRotation').addEventListener('input', liveUpdateRoom);
+            }, 100);
+        }
+
+        function clearAllRooms() {
+            if (confirm('Remove all rooms from this deck?')) {
+                getCurrentDeck().rooms = [];
+                selectedRoomIndex = -1;
+                saveToLocalStorage();
+                renderRoomList();
+                render();
+            }
+        }
+
+        // Rendering
+        function render() {
+            const svg = document.getElementById('mdsCanvas');
+            const deck = getCurrentDeck();
+            const cellSize = config.grid_cell_size;
+            const padding = config.padding;
+            
+            const width = deck.grid_width * cellSize + 2 * padding;
+            const height = deck.grid_height * cellSize + 100 + padding;
+            
+            svg.setAttribute('width', width);
+            svg.setAttribute('height', height);
+            svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+            
+            // Clear SVG
+            svg.innerHTML = '';
+            
+            // Background
+            const bg = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+            bg.setAttribute('width', width);
+            bg.setAttribute('height', height);
+            bg.setAttribute('fill', currentPalette.background);
+            svg.appendChild(bg);
+            
+            // Manual Outlines (drawn first, behind everything - always draw if they exist)
+            if (deck.manual_outlines && deck.manual_outlines.length > 0) {
+                drawManualOutlines(svg, deck, padding, 100);
+            }
+            
+            // LCARS Arches
+            if (config.show_arches) {
+                drawLCARSArches(svg, width, height, 100);
+            }
+            
+            // Hull Outline
+            if (config.auto_outline) {
+                drawHullOutline(svg, deck, padding, 100);
+            }
+            
+            // Header
+            drawHeader(svg, deck, width);
+            
+            // Grid
+            if (config.show_grid) {
+                drawGrid(svg, deck, padding, 100);
+            }
+            
+            // Rooms
+            drawRooms(svg, deck, padding, 100);
+            
+            updateStatus();
+        }
+
+        function drawHeader(svg, deck, width) {
+            const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+            
+            // Title bar
+            const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+            rect.setAttribute('x', config.padding);
+            rect.setAttribute('y', 20);
+            rect.setAttribute('width', width - 2 * config.padding);
+            rect.setAttribute('height', 60);
+            rect.setAttribute('fill', currentPalette.border);
+            rect.setAttribute('rx', 20);
+            g.appendChild(rect);
+            
+            // Determine vertical centering based on deck name visibility
+            const showDeckName = config.show_deck_name !== false;
+            const bannerFontSize = config.banner_font_size || 24;
+            const offsetX = config.banner_font_offset_x || 0;
+            const offsetY = config.banner_font_offset_y || 0;
+            const titleY = showDeckName ? 45 : 55; // Center vertically if no deck name
+            
+            // Title
+            const title = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+            title.setAttribute('x', width / 2 + offsetX);
+            title.setAttribute('y', titleY + offsetY);
+            title.setAttribute('fill', config.text_color || currentPalette.background);
+            title.setAttribute('font-family', 'Arial, sans-serif');
+            title.setAttribute('font-size', bannerFontSize);
+            title.setAttribute('font-weight', 'bold');
+            title.setAttribute('text-anchor', 'middle');
+            title.textContent = `${config.name.toUpperCase()}`;
+            applyTextShadow(title);
+            g.appendChild(title);
+            
+            // Subtitle (only if show_deck_name is true)
+            if (showDeckName) {
+                const subtitle = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                subtitle.setAttribute('x', width / 2 + offsetX);
+                subtitle.setAttribute('y', 68 + offsetY);
+                subtitle.setAttribute('fill', config.text_color || currentPalette.background);
+                subtitle.setAttribute('font-family', 'Arial, sans-serif');
+                subtitle.setAttribute('font-size', Math.round(bannerFontSize * 0.6));
+                subtitle.setAttribute('font-weight', 'bold');
+                subtitle.setAttribute('text-anchor', 'middle');
+                subtitle.textContent = `${deck.name.toUpperCase()}`;
+                applyTextShadow(subtitle);
+                g.appendChild(subtitle);
+            }
+            
+            svg.appendChild(g);
+        }
+
+        function drawLCARSArches(svg, width, height, headerHeight) {
+            // Top left L-shape
+            const path1 = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+            path1.setAttribute('d', `M 10 10 L 10 ${headerHeight - 20} Q 10 ${headerHeight} 20 ${headerHeight} L 60 ${headerHeight}`);
+            path1.setAttribute('stroke', currentPalette.accent1);
+            path1.setAttribute('stroke-width', 8);
+            path1.setAttribute('fill', 'none');
+            path1.setAttribute('stroke-linecap', 'round');
+            svg.appendChild(path1);
+            
+            // Top right arch
+            const path2 = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+            path2.setAttribute('d', `M ${width - 60} ${headerHeight} L ${width - 20} ${headerHeight} Q ${width - 10} ${headerHeight} ${width - 10} ${headerHeight - 20} L ${width - 10} 10`);
+            path2.setAttribute('stroke', currentPalette.accent2);
+            path2.setAttribute('stroke-width', 8);
+            path2.setAttribute('fill', 'none');
+            path2.setAttribute('stroke-linecap', 'round');
+            svg.appendChild(path2);
+            
+            // Corner circles
+            const paletteColors = Object.values(currentPalette.colors);
+            const corners = [
+                [15, 15, paletteColors[0]],
+                [width - 15, 15, paletteColors[1] || paletteColors[0]],
+                [15, height - 15, paletteColors[2] || paletteColors[0]],
+                [width - 15, height - 15, paletteColors[3] || paletteColors[0]]
+            ];
+            
+            corners.forEach(([cx, cy, color]) => {
+                const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                circle.setAttribute('cx', cx);
+                circle.setAttribute('cy', cy);
+                circle.setAttribute('r', 5);
+                circle.setAttribute('fill', color);
+                svg.appendChild(circle);
+            });
+        }
+
+        function drawManualOutlines(svg, deck, xBase, yBase) {
+            if (!deck.manual_outlines) return;
+            
+            const cellSize = config.grid_cell_size;
+            
+            // Sort by z-index (still useful for visual layering even if not user-editable)
+            const sorted = [...deck.manual_outlines].sort((a, b) => (a.z_index || 0) - (b.z_index || 0));
+            
+            sorted.forEach(outline => {
+                const x = xBase + outline.position[0] * cellSize;
+                const y = yBase + outline.position[1] * cellSize;
+                const w = outline.size[0] * cellSize;
+                const h = outline.size[1] * cellSize;
+                
+                // Check if any rooms overlap this outline shape
+                let hasRoomOverlap = false;
+                deck.rooms.forEach(room => {
+                    if (room.position && room.size) {
+                        const [rx, ry] = room.position;
+                        const [rw, rh] = room.size;
+                        
+                        // Check for overlap
+                        const outlineLeft = outline.position[0];
+                        const outlineRight = outline.position[0] + outline.size[0];
+                        const outlineTop = outline.position[1];
+                        const outlineBottom = outline.position[1] + outline.size[1];
+                        
+                        const roomLeft = rx;
+                        const roomRight = rx + rw;
+                        const roomTop = ry;
+                        const roomBottom = ry + rh;
+                        
+                        if (!(outlineRight <= roomLeft || outlineLeft >= roomRight || 
+                              outlineBottom <= roomTop || outlineTop >= roomBottom)) {
+                            hasRoomOverlap = true;
+                        }
+                    }
+                });
+                
+                // Determine if border should be shown
+                const showBorder = outline.show_border !== false && !hasRoomOverlap;
+                const rotation = outline.rotation || 0;
+                
+                if (outline.type === 'rect') {
+                    const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+                    rect.setAttribute('x', x);
+                    rect.setAttribute('y', y);
+                    rect.setAttribute('width', w);
+                    rect.setAttribute('height', h);
+                    rect.setAttribute('fill', outline.color);
+                    if (showBorder) {
+                        rect.setAttribute('stroke', currentPalette.border);
+                        rect.setAttribute('stroke-width', 2);
+                    }
+                    if (rotation !== 0) {
+                        rect.setAttribute('transform', `rotate(${rotation} ${x + w/2} ${y + h/2})`);
+                    }
+                    svg.appendChild(rect);
+                } else if (outline.type === 'ellipse') {
+                    const ellipse = document.createElementNS('http://www.w3.org/2000/svg', 'ellipse');
+                    ellipse.setAttribute('cx', x + w/2);
+                    ellipse.setAttribute('cy', y + h/2);
+                    ellipse.setAttribute('rx', w/2);
+                    ellipse.setAttribute('ry', h/2);
+                    ellipse.setAttribute('fill', outline.color);
+                    if (showBorder) {
+                        ellipse.setAttribute('stroke', currentPalette.border);
+                        ellipse.setAttribute('stroke-width', 2);
+                    }
+                    if (rotation !== 0) {
+                        ellipse.setAttribute('transform', `rotate(${rotation} ${x + w/2} ${y + h/2})`);
+                    }
+                    svg.appendChild(ellipse);
+                } else if (outline.type === 'triangle') {
+                    const triangle = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+                    // Create triangle pointing up with top vertex at center-top, bottom two at corners
+                    const points = `${x + w/2},${y} ${x + w},${y + h} ${x},${y + h}`;
+                    triangle.setAttribute('points', points);
+                    triangle.setAttribute('fill', outline.color);
+                    if (showBorder) {
+                        triangle.setAttribute('stroke', currentPalette.border);
+                        triangle.setAttribute('stroke-width', 2);
+                    }
+                    if (rotation !== 0) {
+                        triangle.setAttribute('transform', `rotate(${rotation} ${x + w/2} ${y + h/2})`);
+                    }
+                    svg.appendChild(triangle);
+                }
+            });
+        }
+
+        function drawHullOutline(svg, deck, xBase, yBase) {
+            const cellSize = config.grid_cell_size;
+            const grid = Array(deck.grid_height).fill().map(() => Array(deck.grid_width).fill(false));
+            
+            // Mark occupied cells
+            deck.rooms.forEach(room => {
+                if (room.position && room.size) {
+                    const [x, y] = room.position;
+                    const [w, h] = room.size;
+                    for (let dy = 0; dy < h; dy++) {
+                        for (let dx = 0; dx < w; dx++) {
+                            if (y + dy < deck.grid_height && x + dx < deck.grid_width) {
+                                grid[y + dy][x + dx] = true;
+                            }
+                        }
+                    }
+                }
+            });
+            
+            // Draw thick borders - only round corners at hull edges
+            const borderThickness = cellSize * config.outline_padding;
+            
+            for (let y = 0; y < deck.grid_height; y++) {
+                for (let x = 0; x < deck.grid_width; x++) {
+                    if (grid[y][x]) {
+                        const px = xBase + x * cellSize;
+                        const py = yBase + y * cellSize;
+                        
+                        // Check neighbors to determine if this is an edge cell
+                        const hasTop = y > 0 && grid[y-1][x];
+                        const hasBottom = y < deck.grid_height - 1 && grid[y+1][x];
+                        const hasLeft = x > 0 && grid[y][x-1];
+                        const hasRight = x < deck.grid_width - 1 && grid[y][x+1];
+                        
+                        // Only apply corner radius if this is an outer corner
+                        let cornerRadius = 0;
+                        if (config.outline_style === 'rounded') {
+                            // Check if this is a corner cell
+                            const isTopLeft = !hasTop && !hasLeft;
+                            const isTopRight = !hasTop && !hasRight;
+                            const isBottomLeft = !hasBottom && !hasLeft;
+                            const isBottomRight = !hasBottom && !hasRight;
+                            
+                            if (isTopLeft || isTopRight || isBottomLeft || isBottomRight) {
+                                cornerRadius = cellSize * 0.2;
+                            }
+                        }
+                        
+                        const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+                        rect.setAttribute('x', px);
+                        rect.setAttribute('y', py);
+                        rect.setAttribute('width', cellSize);
+                        rect.setAttribute('height', cellSize);
+                        rect.setAttribute('rx', cornerRadius);
+                        rect.setAttribute('fill', 'none');
+                        rect.setAttribute('stroke', config.ship_outline_color);
+                        rect.setAttribute('stroke-width', borderThickness);
+                        svg.appendChild(rect);
+                    }
+                }
+            }
+        }
+
+        function drawGrid(svg, deck, xBase, yBase) {
+            const cellSize = config.grid_cell_size;
+            
+            // Horizontal lines
+            for (let y = 0; y <= deck.grid_height; y++) {
+                const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+                line.setAttribute('x1', xBase);
+                line.setAttribute('y1', yBase + y * cellSize);
+                line.setAttribute('x2', xBase + deck.grid_width * cellSize);
+                line.setAttribute('y2', yBase + y * cellSize);
+                line.setAttribute('stroke', currentPalette.grid);
+                line.setAttribute('stroke-width', 1);
+                svg.appendChild(line);
+            }
+            
+            // Vertical lines
+            for (let x = 0; x <= deck.grid_width; x++) {
+                const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+                line.setAttribute('x1', xBase + x * cellSize);
+                line.setAttribute('y1', yBase);
+                line.setAttribute('x2', xBase + x * cellSize);
+                line.setAttribute('y2', yBase + deck.grid_height * cellSize);
+                line.setAttribute('stroke', currentPalette.grid);
+                line.setAttribute('stroke-width', 1);
+                svg.appendChild(line);
+            }
+        }
+
+        function drawRooms(svg, deck, xBase, yBase) {
+            const cellSize = config.grid_cell_size;
+            
+            deck.rooms.forEach((room, index) => {
+                if (!room.position || !room.size) return;
+                
+                const [x, y] = room.position;
+                const [w, h] = room.size;
+                
+                const px = xBase + x * cellSize;
+                const py = yBase + y * cellSize;
+                const width = w * cellSize;
+                const height = h * cellSize;
+                
+                // Room rectangle
+                const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+                rect.setAttribute('x', px + 2);
+                rect.setAttribute('y', py + 2);
+                rect.setAttribute('width', width - 4);
+                rect.setAttribute('height', height - 4);
+                rect.setAttribute('fill', room.color);
+                rect.setAttribute('stroke', currentPalette.border);
+                rect.setAttribute('stroke-width', 2);
+                rect.setAttribute('rx', 8);
+                
+                // Apply rotation if set
+                const rotation = room.rotation || 0;
+                if (rotation !== 0) {
+                    const centerX = px + width / 2;
+                    const centerY = py + height / 2;
+                    rect.setAttribute('transform', `rotate(${rotation} ${centerX} ${centerY})`);
+                }
+                
+                svg.appendChild(rect);
+                
+                // Room label with custom font color, offset, and size
+                const fontColor = room.font_color || null;
+                const fontSize = room.font_size || 14;
+                const offsetX = room.font_offset ? room.font_offset[0] : 0;
+                const offsetY = room.font_offset ? room.font_offset[1] : 0;
+                drawWrappedText(svg, room.label || room.name, px + width / 2, py + height / 2, width - 10, height - 10, fontColor, offsetX, offsetY, fontSize, rotation);
+            });
+        }
+
+        function drawWrappedText(svg, text, centerX, centerY, maxWidth, maxHeight, fontColor = null, offsetX = 0, offsetY = 0, fontSize = null, rotation = 0) {
+            const actualFontSize = fontSize || 14;
+            const words = text.toUpperCase().split(' ');
+            const charWidth = actualFontSize * 0.6;
+            const maxCharsPerLine = Math.floor(maxWidth / charWidth);
+            const lineHeight = actualFontSize * 1.2;
+            const maxLines = Math.floor(maxHeight / lineHeight);
+            
+            let lines = [];
+            let currentLine = [];
+            
+            words.forEach(word => {
+                const testLine = [...currentLine, word].join(' ');
+                if (testLine.length <= maxCharsPerLine) {
+                    currentLine.push(word);
+                } else {
+                    if (currentLine.length > 0) {
+                        lines.push(currentLine.join(' '));
+                    }
+                    currentLine = [word];
+                }
+            });
+            
+            if (currentLine.length > 0) {
+                lines.push(currentLine.join(' '));
+            }
+            
+            // Limit lines
+            if (lines.length > maxLines && maxLines > 0) {
+                lines = lines.slice(0, maxLines);
+                if (maxLines > 0) {
+                    lines[maxLines - 1] = lines[maxLines - 1].substring(0, maxCharsPerLine - 3) + '...';
+                }
+            }
+            
+            const totalHeight = lines.length * lineHeight;
+            const startY = centerY - totalHeight / 2 + lineHeight / 2;
+            
+            // Apply offsets
+            const finalCenterX = centerX + offsetX;
+            const finalStartY = startY + offsetY;
+            
+            // Create a group for rotation
+            const group = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+            if (rotation !== 0) {
+                group.setAttribute('transform', `rotate(${rotation} ${centerX} ${centerY})`);
+            }
+            
+            lines.forEach((line, i) => {
+                const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                text.setAttribute('x', finalCenterX);
+                text.setAttribute('y', finalStartY + i * lineHeight);
+                text.setAttribute('fill', fontColor || '#000000');
+                text.setAttribute('font-family', 'Arial, sans-serif');
+                text.setAttribute('font-size', actualFontSize);
+                text.setAttribute('font-weight', 'bold');
+                text.setAttribute('text-anchor', 'middle');
+                text.textContent = line;
+                applyTextShadow(text);
+                group.appendChild(text);
+            });
+            
+            svg.appendChild(group);
+        }
+
+        function updateStatus() {
+            const deck = getCurrentDeck();
+            const totalCells = deck.grid_width * deck.grid_height;
+            let occupiedCells = 0;
+            
+            deck.rooms.forEach(room => {
+                if (room.size) {
+                    occupiedCells += room.size[0] * room.size[1];
+                }
+            });
+            
+            const coverage = totalCells > 0 ? Math.round(occupiedCells / totalCells * 100) : 0;
+            
+            document.getElementById('statusDeck').textContent = `Deck: ${deck.number} (${deck.name})`;
+            document.getElementById('statusRooms').textContent = `Rooms: ${deck.rooms.length}`;
+            document.getElementById('statusCoverage').textContent = `Coverage: ${coverage}%`;
+        }
+
+        function applyTextShadow(textElement) {
+            if (config.text_shadow) {
+                // Create contrasting drop shadow (white or black based on text color)
+                const filter = document.createElementNS('http://www.w3.org/2000/svg', 'filter');
+                const filterId = 'textShadow_' + Math.random().toString(36).substr(2, 9);
+                filter.setAttribute('id', filterId);
+                filter.setAttribute('x', '-50%');
+                filter.setAttribute('y', '-50%');
+                filter.setAttribute('width', '200%');
+                filter.setAttribute('height', '200%');
+                
+                const feDropShadow = document.createElementNS('http://www.w3.org/2000/svg', 'feDropShadow');
+                feDropShadow.setAttribute('dx', '1');
+                feDropShadow.setAttribute('dy', '1');
+                feDropShadow.setAttribute('stdDeviation', '1.5');
+                feDropShadow.setAttribute('flood-color', '#ffffff');
+                feDropShadow.setAttribute('flood-opacity', '0.8');
+                
+                filter.appendChild(feDropShadow);
+                
+                const svg = document.getElementById('mdsCanvas');
+                let defs = svg.querySelector('defs');
+                if (!defs) {
+                    defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
+                    svg.insertBefore(defs, svg.firstChild);
+                }
+                defs.appendChild(filter);
+                
+                textElement.setAttribute('filter', `url(#${filterId})`);
+            }
+        }
+
+        function toggleAccordion(element) {
+            const content = element.nextElementSibling;
+            element.classList.toggle('collapsed');
+            content.classList.toggle('collapsed');
+        }
+
+        // Modal Dialog Functions
+        let modalContext = null;
+
+        function openModal(title, fields, onSave, onDelete, saveButtonText = '💾 Save') {
+            document.getElementById('modalTitle').textContent = title;
+            const modalBody = document.getElementById('modalBody');
+            modalBody.innerHTML = '';
+            
+            // Create form fields
+            fields.forEach(field => {
+                const fieldDiv = document.createElement('div');
+                fieldDiv.className = 'modal-field';
+                
+                const label = document.createElement('label');
+                label.textContent = field.label;
+                fieldDiv.appendChild(label);
+                
+                if (field.type === 'select') {
+                    const select = document.createElement('select');
+                    select.id = field.id;
+                    field.options.forEach(opt => {
+                        const option = document.createElement('option');
+                        option.value = opt.value;
+                        option.textContent = opt.label;
+                        if (opt.value === field.value) option.selected = true;
+                        select.appendChild(option);
+                    });
+                    fieldDiv.appendChild(select);
+                } else if (field.type === 'range' && field.showInput !== false) {
+                    // Dual slider + number input for range fields (like rotation)
+                    const container = document.createElement('div');
+                    container.style.display = 'flex';
+                    container.style.gap = '10px';
+                    container.style.alignItems = 'center';
+                    
+                    const slider = document.createElement('input');
+                    slider.type = 'range';
+                    slider.id = field.id;
+                    slider.value = field.value || 0;
+                    if (field.min !== undefined) slider.min = field.min;
+                    if (field.max !== undefined) slider.max = field.max;
+                    if (field.step !== undefined) slider.step = field.step;
+                    slider.style.flex = '1';
+                    
+                    const numberInput = document.createElement('input');
+                    numberInput.type = 'number';
+                    numberInput.id = field.id + '_input';
+                    numberInput.value = field.value || 0;
+                    if (field.min !== undefined) numberInput.min = field.min;
+                    if (field.max !== undefined) numberInput.max = field.max;
+                    if (field.step !== undefined) numberInput.step = field.step;
+                    numberInput.style.width = '80px';
+                    
+                    // Sync slider and input
+                    slider.addEventListener('input', (e) => {
+                        numberInput.value = e.target.value;
+                    });
+                    numberInput.addEventListener('input', (e) => {
+                        slider.value = e.target.value;
+                    });
+                    
+                    container.appendChild(slider);
+                    container.appendChild(numberInput);
+                    fieldDiv.appendChild(container);
+                } else {
+                    const input = document.createElement('input');
+                    input.type = field.type || 'text';
+                    input.id = field.id;
+                    input.value = field.value || '';
+                    if (field.min !== undefined) input.min = field.min;
+                    if (field.max !== undefined) input.max = field.max;
+                    if (field.step !== undefined) input.step = field.step;
+                    fieldDiv.appendChild(input);
+                }
+                
+                modalBody.appendChild(fieldDiv);
+            });
+            
+            // Store callbacks
+            modalContext = { onSave, onDelete };
+            
+            // Update button text
+            document.getElementById('modalSaveBtn').textContent = saveButtonText;
+            
+            // Show/hide delete button
+            const deleteBtn = document.getElementById('modalDeleteBtn');
+            deleteBtn.style.display = onDelete ? 'block' : 'none';
+            
+            // Reset modal position
+            const dialog = document.querySelector('.modal-dialog');
+            dialog.style.position = 'relative';
+            dialog.style.left = '0';
+            dialog.style.top = '0';
+            
+            // Setup modal dragging
+            setupModalDrag();
+            
+            // Show modal
+            document.getElementById('modalOverlay').classList.add('active');
+        }
+
+        let modalDragState = { isDragging: false, startX: 0, startY: 0, initialX: 0, initialY: 0 };
+
+        function setupModalDrag() {
+            const header = document.querySelector('.modal-header');
+            const dialog = document.querySelector('.modal-dialog');
+            
+            // Remove old listeners if any
+            header.onmousedown = null;
+            
+            header.onmousedown = (e) => {
+                modalDragState.isDragging = true;
+                const style = window.getComputedStyle(dialog);
+                const matrix = new DOMMatrix(style.transform);
+                modalDragState.initialX = matrix.m41 || 0;
+                modalDragState.initialY = matrix.m42 || 0;
+                modalDragState.startX = e.clientX;
+                modalDragState.startY = e.clientY;
+                e.preventDefault();
+            };
+            
+            document.onmousemove = (e) => {
+                if (!modalDragState.isDragging) return;
+                
+                const dx = e.clientX - modalDragState.startX;
+                const dy = e.clientY - modalDragState.startY;
+                
+                dialog.style.transform = `translate(${modalDragState.initialX + dx}px, ${modalDragState.initialY + dy}px)`;
+            };
+            
+            document.onmouseup = () => {
+                if (modalDragState.isDragging) {
+                    modalDragState.isDragging = false;
+                }
+            };
+        }
+
+        function closeModal() {
+            document.getElementById('modalOverlay').classList.remove('active');
+            modalContext = null;
+            
+            // Clean up drag listeners
+            const header = document.querySelector('.modal-header');
+            if (header) header.onmousedown = null;
+        }
+
+        function modalSave() {
+            if (modalContext && modalContext.onSave) {
+                modalContext.onSave();
+            }
+            closeModal();
+        }
+
+        function modalDelete() {
+            if (modalContext && modalContext.onDelete) {
+                if (confirm('Are you sure you want to delete this item?')) {
+                    modalContext.onDelete();
+                    closeModal();
+                }
+            }
+        }
+
+        // Help Modal Functions
+        function showHelp() {
+            document.getElementById('helpModal').style.display = 'block';
+        }
+
+        function closeHelp() {
+            document.getElementById('helpModal').style.display = 'none';
+        }
+
+        // Mobile Menu Toggle
+        function toggleMobileMenu() {
+            const sidebar = document.querySelector('.sidebar');
+            const toggle = document.getElementById('menuToggle');
+            const isOpen = sidebar.classList.toggle('open');
+            
+            // Change icon based on state
+            toggle.textContent = isOpen ? '‹' : '›';
+        }
+
+        // Close mobile menu when clicking outside on mobile
+        document.addEventListener('click', (e) => {
+            const sidebar = document.querySelector('.sidebar');
+            const toggle = document.getElementById('menuToggle');
+            
+            if (window.innerWidth <= 768 && sidebar.classList.contains('open')) {
+                if (!sidebar.contains(e.target) && e.target !== toggle) {
+                    sidebar.classList.remove('open');
+                    toggle.textContent = '›';
+                }
+            }
+        });
+
+        // Drag and Drop Functions
+        function handleMouseDown(event) {
+            const deck = getCurrentDeck();
+            const svg = document.getElementById('mdsCanvas');
+            const rect = svg.getBoundingClientRect();
+            const mouseX = event.clientX - rect.left;
+            const mouseY = event.clientY - rect.top;
+            
+            // Convert to grid coordinates
+            const cellSize = config.grid_cell_size;
+            const xBase = config.padding;
+            const yBase = 100; // Header height
+            
+            const gridX = Math.floor((mouseX - xBase) / cellSize);
+            const gridY = Math.floor((mouseY - yBase) / cellSize);
+            
+            // Check rooms FIRST (higher priority than outlines)
+            for (let i = deck.rooms.length - 1; i >= 0; i--) {
+                const room = deck.rooms[i];
+                if (room.position && room.size) {
+                    const [rx, ry] = room.position;
+                    const [rw, rh] = room.size;
+                    
+                    if (gridX >= rx && gridX < rx + rw && gridY >= ry && gridY < ry + rh) {
+                        draggedRoomIndex = i;
+                        isDragging = true;
+                        dragOffset.x = gridX - rx;
+                        dragOffset.y = gridY - ry;
+                        selectedRoomIndex = i;
+                        renderRoomList();
+                        return;
+                    }
+                }
+            }
+            
+            // Check manual outlines (lower priority)
+            if (deck.manual_outlines && deck.manual_outlines.length > 0) {
+                for (let i = deck.manual_outlines.length - 1; i >= 0; i--) {
+                    const outline = deck.manual_outlines[i];
+                    if (outline.position && outline.size) {
+                        const [ox, oy] = outline.position;
+                        const [ow, oh] = outline.size;
+                        
+                        if (gridX >= ox && gridX < ox + ow && gridY >= oy && gridY < oy + oh) {
+                            draggedOutlineIndex = i;
+                            isDragging = true;
+                            dragOffset.x = gridX - ox;
+                            dragOffset.y = gridY - oy;
+                            selectedOutlineIndex = i;
+                            renderOutlineList();
+                            return;
+                        }
+                    }
+                }
+            }
+        }
+
+        function handleMouseMove(event) {
+            if (!isDragging) return;
+            
+            const deck = getCurrentDeck();
+            const svg = document.getElementById('mdsCanvas');
+            const rect = svg.getBoundingClientRect();
+            const mouseX = event.clientX - rect.left;
+            const mouseY = event.clientY - rect.top;
+            
+            const cellSize = config.grid_cell_size;
+            const xBase = config.padding;
+            const yBase = 100;
+            
+            const gridX = Math.floor((mouseX - xBase) / cellSize);
+            const gridY = Math.floor((mouseY - yBase) / cellSize);
+            
+            // Handle outline dragging
+            if (draggedOutlineIndex !== -1) {
+                const outline = deck.manual_outlines[draggedOutlineIndex];
+                // Allow outlines to flow off the grid (no boundary constraints)
+                const newX = gridX - dragOffset.x;
+                const newY = gridY - dragOffset.y;
+                outline.position = [newX, newY];
+                render();
+                return;
+            }
+            
+            // Handle room dragging
+            if (draggedRoomIndex !== -1) {
+                const room = deck.rooms[draggedRoomIndex];
+                const newX = Math.max(0, Math.min(gridX - dragOffset.x, deck.grid_width - room.size[0]));
+                const newY = Math.max(0, Math.min(gridY - dragOffset.y, deck.grid_height - room.size[1]));
+                room.position = [newX, newY];
+                render();
+            }
+        }
+
+        function handleMouseUp(event) {
+            if (isDragging) {
+                isDragging = false;
+                draggedRoomIndex = -1;
+                draggedOutlineIndex = -1;
+                saveToLocalStorage();
+                renderRoomList();
+                renderOutlineList();
+            }
+        }
+
+        // Touch event handlers
+        function handleTouchStart(event) {
+            event.preventDefault();
+            const touch = event.touches[0];
+            const mouseEvent = new MouseEvent('mousedown', {
+                clientX: touch.clientX,
+                clientY: touch.clientY
+            });
+            handleMouseDown(mouseEvent);
+        }
+
+        function handleTouchMove(event) {
+            event.preventDefault();
+            const touch = event.touches[0];
+            const mouseEvent = new MouseEvent('mousemove', {
+                clientX: touch.clientX,
+                clientY: touch.clientY
+            });
+            handleMouseMove(mouseEvent);
+        }
+
+        function handleTouchEnd(event) {
+            event.preventDefault();
+            const mouseEvent = new MouseEvent('mouseup', {});
+            handleMouseUp(mouseEvent);
+        }
+
+        // Manual Outline Functions
+        function addManualOutline() {
+            const deck = getCurrentDeck();
+            if (!deck.manual_outlines) {
+                deck.manual_outlines = [];
+            }
+            
+            openModal('Add Outline Shape', [
+                { 
+                    id: 'newOutlineType', 
+                    label: 'Shape Type', 
+                    type: 'select', 
+                    value: 'rect',
+                    options: [
+                        { value: 'rect', label: 'Rectangle' },
+                        { value: 'ellipse', label: 'Ellipse' },
+                        { value: 'triangle', label: 'Triangle' }
+                    ]
+                },
+                { id: 'newOutlineWidth', label: 'Width (grid cells)', type: 'number', value: 4, min: 1, max: 30 },
+                { id: 'newOutlineHeight', label: 'Height (grid cells)', type: 'number', value: 3, min: 1, max: 30 },
+                { id: 'newOutlineColor', label: 'Color', type: 'color', value: currentPalette.hull },
+                { id: 'newOutlineZIndex', label: 'Z-Index (0=back, 100=front)', type: 'number', value: 0, min: 0, max: 100 }
+            ],
+            () => {
+                // Save callback
+                const newOutline = {
+                    type: document.getElementById('newOutlineType').value,
+                    color: document.getElementById('newOutlineColor').value,
+                    position: [2, 2],
+                    size: [
+                        parseInt(document.getElementById('newOutlineWidth').value),
+                        parseInt(document.getElementById('newOutlineHeight').value)
+                    ],
+                    z_index: parseInt(document.getElementById('newOutlineZIndex').value) || 0,
+                    rotation: 0,
+                    show_border: true
+                };
+                
+                deck.manual_outlines.push(newOutline);
+                saveToLocalStorage();
+                renderOutlineList();
+                render();
+            });
+        }
+
+        function renderOutlineList() {
+            const container = document.getElementById('outlineShapeList');
+            const deck = getCurrentDeck();
+            const outlines = deck.manual_outlines || [];
+            
+            container.innerHTML = outlines.length === 0 
+                ? '<div style="text-align:center;color:#666;padding:10px;">No manual outlines</div>'
+                : '';
+            
+            outlines.forEach((outline, index) => {
+                const item = document.createElement('div');
+                item.className = 'room-item';
+                if (index === selectedOutlineIndex) item.classList.add('selected');
+                if (index === draggedOutlineIndex) item.classList.add('dragging');
+                item.innerHTML = `
+                    <div class="room-item-header">
+                        <div class="room-item-name">${outline.type.toUpperCase()}</div>
+                        <div class="room-color-indicator" style="background:${outline.color}"></div>
+                    </div>
+                    <div class="room-item-stats">Z:${outline.z_index} ${outline.size[0]}x${outline.size[1]} @ (${outline.position[0]},${outline.position[1]})</div>
+                `;
+                
+                // Double-click to edit (desktop)
+                item.addEventListener('dblclick', (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    editOutline(index);
+                });
+                
+                // Single click to select
+                item.addEventListener('click', (e) => {
+                    if (e.detail === 1) { // Only on single click, not double
+                        selectOutline(index);
+                    }
+                });
+                
+                // Long press to edit (mobile) - 500ms
+                let longPressTimer = null;
+                item.addEventListener('touchstart', (e) => {
+                    longPressTimer = setTimeout(() => {
+                        editOutline(index);
+                    }, 500);
+                });
+                
+                item.addEventListener('touchend', () => {
+                    if (longPressTimer) {
+                        clearTimeout(longPressTimer);
+                        longPressTimer = null;
+                    }
+                });
+                
+                item.addEventListener('touchmove', () => {
+                    if (longPressTimer) {
+                        clearTimeout(longPressTimer);
+                        longPressTimer = null;
+                    }
+                });
+                
+                container.appendChild(item);
+            });
+        }
+
+        let selectedOutlineIndex = -1;
+        let draggedOutlineIndex = -1;
+
+        function selectOutline(index) {
+            selectedOutlineIndex = selectedOutlineIndex === index ? -1 : index;
+            renderOutlineList();
+        }
+
+        function editOutline(index) {
+            const deck = getCurrentDeck();
+            const outline = deck.manual_outlines[index];
+            
+            openModal('Edit Outline Shape', [
+                { 
+                    id: 'outlineType', 
+                    label: 'Shape Type', 
+                    type: 'select', 
+                    value: outline.type,
+                    options: [
+                        { value: 'rect', label: 'Rectangle' },
+                        { value: 'ellipse', label: 'Ellipse' },
+                        { value: 'triangle', label: 'Triangle' }
+                    ]
+                },
+                { id: 'outlineWidth', label: 'Width (grid cells)', type: 'number', value: outline.size[0], min: 1, max: 30 },
+                { id: 'outlineHeight', label: 'Height (grid cells)', type: 'number', value: outline.size[1], min: 1, max: 30 },
+                { id: 'outlineColor', label: 'Color', type: 'color', value: outline.color },
+                { id: 'outlineRotation', label: 'Rotation (degrees)', type: 'range', value: outline.rotation || 0, min: 0, max: 360 },
+                { 
+                    id: 'outlineShowBorder', 
+                    label: 'Show Border', 
+                    type: 'select', 
+                    value: outline.show_border === false ? 'false' : 'true',
+                    options: [
+                        { value: 'true', label: 'Yes' },
+                        { value: 'false', label: 'No' }
+                    ]
+                }
+            ],
+            () => {
+                // Save callback
+                outline.type = document.getElementById('outlineType').value;
+                const width = parseInt(document.getElementById('outlineWidth').value);
+                const height = parseInt(document.getElementById('outlineHeight').value);
+                outline.size = [width, height];
+                outline.color = document.getElementById('outlineColor').value;
+                outline.rotation = parseInt(document.getElementById('outlineRotation').value) || 0;
+                outline.show_border = document.getElementById('outlineShowBorder').value === 'true';
+                
+                saveToLocalStorage();
+                renderOutlineList();
+                render();
+            },
+            () => {
+                // Delete callback
+                deck.manual_outlines.splice(index, 1);
+                selectedOutlineIndex = -1;
+                saveToLocalStorage();
+                renderOutlineList();
+                render();
+            });
+            
+            // Add live preview for outline editing
+            setTimeout(() => {
+                const liveUpdateOutline = () => {
+                    outline.type = document.getElementById('outlineType').value;
+                    const width = parseInt(document.getElementById('outlineWidth').value) || outline.size[0];
+                    const height = parseInt(document.getElementById('outlineHeight').value) || outline.size[1];
+                    outline.size = [width, height];
+                    outline.color = document.getElementById('outlineColor').value;
+                    outline.rotation = parseInt(document.getElementById('outlineRotation').value) || 0;
+                    outline.show_border = document.getElementById('outlineShowBorder').value === 'true';
+                    render();
+                };
+                
+                document.getElementById('outlineType').addEventListener('change', liveUpdateOutline);
+                document.getElementById('outlineWidth').addEventListener('input', liveUpdateOutline);
+                document.getElementById('outlineHeight').addEventListener('input', liveUpdateOutline);
+                document.getElementById('outlineColor').addEventListener('input', liveUpdateOutline);
+                document.getElementById('outlineRotation').addEventListener('input', liveUpdateOutline);
+                document.getElementById('outlineShowBorder').addEventListener('change', liveUpdateOutline);
+            }, 100);
+        }
+
+        // Export Functions
+        function exportShip() {
+            const json = JSON.stringify(config, null, 2);
+            const blob = new Blob([json], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `${config.name.replace(/\s+/g, '_')}_ship.json`;
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+
+        function importShip() {
+            document.getElementById('shipFileInput').click();
+        }
+
+        function editCustomPalette() {
+            const custom = COLOR_PALETTES.custom;
+            
+            openModal('Edit Custom Palette', [
+                { id: 'customBackground', label: 'Background', type: 'color', value: custom.background },
+                { id: 'customText', label: 'Text', type: 'color', value: custom.text },
+                { id: 'customBorder', label: 'Border', type: 'color', value: custom.border },
+                { id: 'customGrid', label: 'Grid', type: 'color', value: custom.grid },
+                { id: 'customHull', label: 'Hull Outline', type: 'color', value: custom.hull },
+                { id: 'customAccent1', label: 'Accent 1', type: 'color', value: custom.accent1 },
+                { id: 'customAccent2', label: 'Accent 2', type: 'color', value: custom.accent2 },
+                { id: 'customColor1', label: 'Room Color 1', type: 'color', value: custom.colors.COLOR_1 },
+                { id: 'customColor2', label: 'Room Color 2', type: 'color', value: custom.colors.COLOR_2 },
+                { id: 'customColor3', label: 'Room Color 3', type: 'color', value: custom.colors.COLOR_3 },
+                { id: 'customColor4', label: 'Room Color 4', type: 'color', value: custom.colors.COLOR_4 },
+                { id: 'customColor5', label: 'Room Color 5', type: 'color', value: custom.colors.COLOR_5 },
+                { id: 'customColor6', label: 'Room Color 6', type: 'color', value: custom.colors.COLOR_6 },
+                { id: 'customColor7', label: 'Room Color 7', type: 'color', value: custom.colors.COLOR_7 },
+                { id: 'customColor8', label: 'Room Color 8', type: 'color', value: custom.colors.COLOR_8 },
+                { id: 'customColor9', label: 'Room Color 9', type: 'color', value: custom.colors.COLOR_9 }
+            ],
+            () => {
+                // Save callback
+                custom.background = document.getElementById('customBackground').value;
+                custom.text = document.getElementById('customText').value;
+                custom.border = document.getElementById('customBorder').value;
+                custom.grid = document.getElementById('customGrid').value;
+                custom.hull = document.getElementById('customHull').value;
+                custom.accent1 = document.getElementById('customAccent1').value;
+                custom.accent2 = document.getElementById('customAccent2').value;
+                custom.colors.COLOR_1 = document.getElementById('customColor1').value;
+                custom.colors.COLOR_2 = document.getElementById('customColor2').value;
+                custom.colors.COLOR_3 = document.getElementById('customColor3').value;
+                custom.colors.COLOR_4 = document.getElementById('customColor4').value;
+                custom.colors.COLOR_5 = document.getElementById('customColor5').value;
+                custom.colors.COLOR_6 = document.getElementById('customColor6').value;
+                custom.colors.COLOR_7 = document.getElementById('customColor7').value;
+                custom.colors.COLOR_8 = document.getElementById('customColor8').value;
+                custom.colors.COLOR_9 = document.getElementById('customColor9').value;
+                
+                currentPalette = custom;
+                applyColorPalette();
+                saveToLocalStorage();
+                render();
+            },
+            null);
+            
+            // Add live preview for palette editing
+            setTimeout(() => {
+                const liveUpdatePalette = () => {
+                    custom.background = document.getElementById('customBackground').value;
+                    custom.text = document.getElementById('customText').value;
+                    custom.border = document.getElementById('customBorder').value;
+                    custom.grid = document.getElementById('customGrid').value;
+                    custom.hull = document.getElementById('customHull').value;
+                    custom.accent1 = document.getElementById('customAccent1').value;
+                    custom.accent2 = document.getElementById('customAccent2').value;
+                    custom.colors.COLOR_1 = document.getElementById('customColor1').value;
+                    custom.colors.COLOR_2 = document.getElementById('customColor2').value;
+                    custom.colors.COLOR_3 = document.getElementById('customColor3').value;
+                    custom.colors.COLOR_4 = document.getElementById('customColor4').value;
+                    custom.colors.COLOR_5 = document.getElementById('customColor5').value;
+                    custom.colors.COLOR_6 = document.getElementById('customColor6').value;
+                    custom.colors.COLOR_7 = document.getElementById('customColor7').value;
+                    custom.colors.COLOR_8 = document.getElementById('customColor8').value;
+                    custom.colors.COLOR_9 = document.getElementById('customColor9').value;
+                    
+                    currentPalette = custom;
+                    applyColorPalette();
+                    render();
+                };
+                
+                ['customBackground', 'customText', 'customBorder', 'customGrid', 'customHull', 
+                 'customAccent1', 'customAccent2', 'customColor1', 'customColor2', 'customColor3',
+                 'customColor4', 'customColor5', 'customColor6', 'customColor7', 'customColor8', 'customColor9']
+                    .forEach(id => {
+                        const el = document.getElementById(id);
+                        if (el) el.addEventListener('input', liveUpdatePalette);
+                    });
+            }, 100);
+        }
+
+        function exportSettings() {
+            const settings = {
+                grid_cell_size: config.grid_cell_size,
+                padding: config.padding,
+                font_size: config.font_size,
+                text_color: config.text_color,
+                text_shadow: config.text_shadow,
+                ship_outline_color: config.ship_outline_color,
+                show_arches: config.show_arches,
+                show_grid: config.show_grid,
+                outline_style: config.outline_style,
+                auto_outline: config.auto_outline,
+                outline_padding: config.outline_padding,
+                color_palette: config.color_palette,
+                manual_outline_mode: config.manual_outline_mode,
+                custom_palette: COLOR_PALETTES.custom
+            };
+            const json = JSON.stringify(settings, null, 2);
+            const blob = new Blob([json], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'mds_settings.json';
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+
+        function importSettings() {
+            document.getElementById('settingsFileInput').click();
+        }
+
+        function handleShipImport(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                try {
+                    const imported = JSON.parse(e.target.result);
+                    config = imported;
+                    currentDeckIndex = 0;
+                    selectedRoomIndex = -1;
+                    
+                    // Restore custom palette if it exists
+                    if (config.custom_palette) {
+                        COLOR_PALETTES.custom = config.custom_palette;
+                    }
+                    
+                    currentPalette = COLOR_PALETTES[config.color_palette || 'lcars'];
+                    saveToLocalStorage();
+                    syncUIFromConfig();
+                    renderDeckTabs();
+                    renderRoomList();
+                    render();
+                    alert('Ship imported successfully!');
+                } catch (error) {
+                    alert('Error importing ship: ' + error.message);
+                }
+            };
+            reader.readAsText(file);
+            event.target.value = '';
+        }
+
+        function handleSettingsImport(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                try {
+                    const imported = JSON.parse(e.target.result);
+                    
+                    // Restore custom palette if it exists
+                    if (imported.custom_palette) {
+                        COLOR_PALETTES.custom = imported.custom_palette;
+                    }
+                    
+                    // Apply settings to config
+                    Object.assign(config, imported);
+                    currentPalette = COLOR_PALETTES[config.color_palette || 'lcars'];
+                    saveToLocalStorage();
+                    syncUIFromConfig();
+                    render();
+                    alert('Settings imported successfully!');
+                } catch (error) {
+                    alert('Error importing settings: ' + error.message);
+                }
+            };
+            reader.readAsText(file);
+            event.target.value = '';
+        }
+
+        function exportSVG() {
+            const svg = document.getElementById('mdsCanvas');
+            const svgData = new XMLSerializer().serializeToString(svg);
+            const blob = new Blob([svgData], { type: 'image/svg+xml' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            const deck = getCurrentDeck();
+            a.href = url;
+            a.download = `${config.name.replace(/\s+/g, '_')}_deck${deck.number}_${deck.name.replace(/\s+/g, '_')}.svg`;
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+
+        function exportPNG() {
+            const svg = document.getElementById('mdsCanvas');
+            const svgData = new XMLSerializer().serializeToString(svg);
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            const img = new Image();
+            
+            img.onload = () => {
+                canvas.width = img.width;
+                canvas.height = img.height;
+                ctx.drawImage(img, 0, 0);
+                canvas.toBlob((blob) => {
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    const deck = getCurrentDeck();
+                    a.href = url;
+                    a.download = `${config.name.replace(/\s+/g, '_')}_deck${deck.number}_${deck.name.replace(/\s+/g, '_')}.png`;
+                    a.click();
+                    URL.revokeObjectURL(url);
+                });
+            };
+            
+            img.src = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svgData)));
+        }
+
+        // Start the application
+        document.addEventListener('DOMContentLoaded', () => {
+            init();
+        });
+        
+        // Also trigger on window load as backup
+        window.addEventListener('load', () => {
+            applyColorPalette(); // Re-apply palette to ensure CSS variables are set
+            render();
+        });
+    </script>
+</body>
+</html>
