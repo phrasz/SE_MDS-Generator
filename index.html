@@ -82,6 +82,7 @@
                 overflow-y: auto;
                 -webkit-overflow-scrolling: touch;
                 padding-bottom: 60px;
+                transition: transform 0.3s ease;
             }
 
             .sidebar.open {
@@ -93,13 +94,17 @@
                 align-items: center;
                 justify-content: center;
             }
+            
+            .menu-toggle.sidebar-open {
+                background: var(--lcars-red);
+            }
 
             .canvas-area {
                 width: 100%;
             }
             
             .sidebar h1 {
-                text-align: right;
+                padding-right: 60px;
             }
         }
 
@@ -562,6 +567,22 @@
 
         .help-modal em {
             color: var(--lcars-purple);
+        }
+        
+        /* Canvas selection highlight */
+        .canvas-highlight {
+            pointer-events: none;
+            fill: none;
+            stroke: var(--lcars-orange);
+            stroke-width: 3;
+            stroke-dasharray: 5, 5;
+            animation: dash 0.5s linear infinite;
+        }
+        
+        @keyframes dash {
+            to {
+                stroke-dashoffset: -10;
+            }
         }
     </style>
 </head>
@@ -1729,7 +1750,55 @@
             // Rooms
             drawRooms(svg, deck, padding, 100);
             
+            // Draw selection highlights
+            drawSelectionHighlights(svg, deck, padding, 100);
+            
             updateStatus();
+        }
+        
+        function drawSelectionHighlights(svg, deck, xBase, yBase) {
+            const cellSize = config.grid_cell_size;
+            
+            // Highlight selected room
+            if (selectedRoomIndex !== -1 && deck.rooms[selectedRoomIndex]) {
+                const room = deck.rooms[selectedRoomIndex];
+                if (room.position && room.size) {
+                    const x = xBase + room.position[0] * cellSize;
+                    const y = yBase + room.position[1] * cellSize;
+                    const w = room.size[0] * cellSize;
+                    const h = room.size[1] * cellSize;
+                    
+                    const highlight = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+                    highlight.setAttribute('class', 'canvas-highlight');
+                    highlight.setAttribute('x', x - 2);
+                    highlight.setAttribute('y', y - 2);
+                    highlight.setAttribute('width', w + 4);
+                    highlight.setAttribute('height', h + 4);
+                    svg.appendChild(highlight);
+                }
+            }
+            
+            // Highlight selected outline
+            if (selectedOutlineIndex !== -1 && config.manual_outlines && config.manual_outlines[selectedOutlineIndex]) {
+                const outline = config.manual_outlines[selectedOutlineIndex];
+                // Only highlight if visible on current deck
+                if (outline.visible_on_decks && outline.visible_on_decks.includes(currentDeckIndex)) {
+                    if (outline.position && outline.size) {
+                        const x = xBase + outline.position[0] * cellSize;
+                        const y = yBase + outline.position[1] * cellSize;
+                        const w = outline.size[0] * cellSize;
+                        const h = outline.size[1] * cellSize;
+                        
+                        const highlight = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+                        highlight.setAttribute('class', 'canvas-highlight');
+                        highlight.setAttribute('x', x - 2);
+                        highlight.setAttribute('y', y - 2);
+                        highlight.setAttribute('width', w + 4);
+                        highlight.setAttribute('height', h + 4);
+                        svg.appendChild(highlight);
+                    }
+                }
+            }
         }
 
         function drawHeader(svg, deck, width) {
@@ -2366,9 +2435,10 @@
             const sidebar = document.querySelector('.sidebar');
             const toggle = document.getElementById('menuToggle');
             const isOpen = sidebar.classList.toggle('open');
+            toggle.classList.toggle('sidebar-open', isOpen);
             
             // Change icon based on state
-            toggle.textContent = isOpen ? '‹' : '›';
+            toggle.textContent = isOpen ? '×' : '›';
         }
 
         // Close mobile menu when clicking outside on mobile
@@ -2413,7 +2483,10 @@
                         dragOffset.x = gridX - rx;
                         dragOffset.y = gridY - ry;
                         selectedRoomIndex = i;
+                        selectedOutlineIndex = -1; // Deselect outline when selecting room
                         renderRoomList();
+                        renderOutlineList();
+                        render();
                         return;
                     }
                 }
@@ -2435,13 +2508,23 @@
                                 dragOffset.x = gridX - ox;
                                 dragOffset.y = gridY - oy;
                                 selectedOutlineIndex = i;
+                                selectedRoomIndex = -1; // Deselect room when selecting outline
                                 renderOutlineList();
+                                renderRoomList();
+                                render();
                                 return;
                             }
                         }
                     }
                 }
             }
+            
+            // Clicked on empty space - deselect everything
+            selectedRoomIndex = -1;
+            selectedOutlineIndex = -1;
+            renderRoomList();
+            renderOutlineList();
+            render();
         }
 
         function handleMouseMove(event) {
