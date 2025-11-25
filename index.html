@@ -713,6 +713,7 @@
                     <li><strong>Export JSON:</strong> Save entire ship design as a JSON file for backup or sharing</li>
                     <li><strong>Import JSON:</strong> Load a previously saved ship design (replaces current design)</li>
                     <li><strong>Export PNG:</strong> Generate a high-quality image of your MDS for documentation or display</li>
+                    <li><strong>SE LCD Text:</strong> Convert your MDS to Space Engineers LCD-compatible text for in-game display</li>
                     <li><strong>Auto-Save:</strong> All changes are automatically saved to browser localStorage</li>
                 </ul>
                 <h3>🎨 Custom Palette Editor</h3>
@@ -739,6 +740,43 @@
                 <p><em>Created for Space Engineers enthusiasts. 🖖</em></p>
                 <br>
                 <button class="btn" onclick="closeHelp()">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- SE LCD Modal -->
+    <div class="help-modal" id="seLCDModal" style="display:none;">
+        <div class="modal-dialog">
+            <div class="modal-header">
+                <div class="modal-title">🎮 Space Engineers LCD Text</div>
+                <button class="modal-close" onclick="closeSELCDModal()">×</button>
+            </div>
+            <div class="modal-body" style="max-height:70vh; overflow-y:auto;">
+                <p><strong>Instructions:</strong></p>
+                <ol>
+                    <li>Click "Copy to Clipboard" below</li>
+                    <li>In Space Engineers, access an LCD panel</li>
+                    <li>Set Content to "Text and Images"</li>
+                    <li>Set Font to <strong>MONOSPACE</strong></li>
+                    <li>Set Font Size to <strong>0.1</strong> (minimum)</li>
+                    <li>Set Text Padding to <strong>0</strong></li>
+                    <li>Paste the text (Ctrl+V)</li>
+                </ol>
+                <br>
+                <div class="control-group">
+                    <label>LCD Text Preview:</label>
+                    <textarea id="seLCDTextArea" readonly style="width: 100%; height: 200px; font-family: monospace; font-size: 8px; background: #222; color: #0f0; border: 1px solid var(--lcars-blue); padding: 10px; resize: vertical;"></textarea>
+                </div>
+                <br>
+                <p id="seLCDStringLength" style="color: var(--lcars-yellow);"><em>String Length: 0 characters</em></p>
+                <br>
+                <p style="color: var(--lcars-tan); font-size: 12px;">
+                    <em>Conversion algorithm based on <a href="https://github.com/Whiplash141/Whips-Image-Converter" target="_blank" style="color: var(--lcars-blue);">Whip's Image Converter</a> by <a href="https://github.com/Whiplash141" target="_blank" style="color: var(--lcars-blue);">Whiplash141</a></em>
+                </p>
+            </div>
+            <div class="modal-footer">
+                <button class="btn" onclick="copySELCDText()">📋 Copy to Clipboard</button>
+                <button class="btn btn-secondary" onclick="closeSELCDModal()">Close</button>
             </div>
         </div>
     </div>
@@ -874,6 +912,7 @@
         <div class="control-group">
             <button class="btn" onclick="exportSVG()">📄 Download SVG</button>
             <button class="btn" onclick="exportPNG()">🖼️ Download PNG</button>
+            <button class="btn" onclick="exportSELCD()">🎮 SE LCD Text</button>
         </div>
 
         <h2 class="primary">Ship Data</h2>
@@ -3391,6 +3430,132 @@
             };
             
             img.src = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svgData)));
+        }
+
+        // Space Engineers LCD Text Export
+        function exportSELCD() {
+            try {
+                console.log('SE LCD Export started...');
+                const svg = document.getElementById('mdsCanvas');
+                if (!svg) {
+                    alert('Error: Canvas not found!');
+                    return;
+                }
+                
+                const svgData = new XMLSerializer().serializeToString(svg);
+                const canvas = document.createElement('canvas');
+                const ctx = canvas.getContext('2d');
+                const img = new Image();
+                
+                img.onload = () => {
+                    try {
+                        console.log('Image loaded, converting...');
+                        // Set canvas dimensions (use LCD standard size or custom)
+                        const lcdWidth = 178;  // Standard LCD panel width in characters
+                        const lcdHeight = 178; // Standard LCD panel height in characters
+                        
+                        canvas.width = lcdWidth;
+                        canvas.height = lcdHeight;
+                        
+                        // Fill with black background
+                        ctx.fillStyle = '#000000';
+                        ctx.fillRect(0, 0, lcdWidth, lcdHeight);
+                        
+                        // Calculate scaling to fit image in LCD while maintaining aspect ratio
+                        const scale = Math.min(lcdWidth / img.width, lcdHeight / img.height);
+                        const scaledWidth = img.width * scale;
+                        const scaledHeight = img.height * scale;
+                        const offsetX = (lcdWidth - scaledWidth) / 2;
+                        const offsetY = (lcdHeight - scaledHeight) / 2;
+                        
+                        // Draw image centered
+                        ctx.drawImage(img, offsetX, offsetY, scaledWidth, scaledHeight);
+                        
+                        // Get pixel data
+                        const imageData = ctx.getImageData(0, 0, lcdWidth, lcdHeight);
+                        const pixels = imageData.data;
+                        
+                        // Convert to SE LCD text format
+                        let lcdText = '';
+                        for (let y = 0; y < lcdHeight; y++) {
+                            for (let x = 0; x < lcdWidth; x++) {
+                                const idx = (y * lcdWidth + x) * 4;
+                                const r = pixels[idx];
+                                const g = pixels[idx + 1];
+                                const b = pixels[idx + 2];
+                                
+                                // Convert RGB (0-255) to 3-bit color (0-7)
+                                const r3bit = Math.round(r / 255 * 7);
+                                const g3bit = Math.round(g / 255 * 7);
+                                const b3bit = Math.round(b / 255 * 7);
+                                
+                                // Encode as SE monospace character
+                                const charCode = 0xE100 + (r3bit << 6) + (g3bit << 3) + b3bit;
+                                lcdText += String.fromCharCode(charCode);
+                            }
+                            if (y < lcdHeight - 1) {
+                                lcdText += '\n';
+                            }
+                        }
+                        
+                        // Add metadata footer
+                        const deck = getCurrentDeck();
+                        lcdText += `\nMDS Generator - ${config.name} Deck ${deck.number}`;
+                        
+                        console.log('Conversion complete, showing modal...');
+                        // Show modal with text and copy button
+                        showSELCDModal(lcdText);
+                    } catch (err) {
+                        console.error('Error during conversion:', err);
+                        alert('Error converting image: ' + err.message);
+                    }
+                };
+                
+                img.onerror = (err) => {
+                    console.error('Error loading image:', err);
+                    alert('Error loading image for conversion');
+                };
+                
+                img.src = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svgData)));
+                console.log('Image source set, waiting for load...');
+            } catch (err) {
+                console.error('Error in exportSELCD:', err);
+                alert('Error: ' + err.message);
+            }
+        }
+
+        function showSELCDModal(lcdText) {
+            // Store text globally for copy function
+            window.currentSELCDText = lcdText;
+            
+            // Populate the modal
+            document.getElementById('seLCDTextArea').value = lcdText;
+            document.getElementById('seLCDStringLength').innerHTML = `<em>String Length: ${lcdText.length} characters</em>`;
+            
+            // Show modal
+            document.getElementById('seLCDModal').style.display = 'flex';
+        }
+        
+        function closeSELCDModal() {
+            document.getElementById('seLCDModal').style.display = 'none';
+        }
+
+        function copySELCDText() {
+            const textarea = document.getElementById('seLCDTextArea');
+            textarea.select();
+            textarea.setSelectionRange(0, 99999); // For mobile devices
+            
+            try {
+                navigator.clipboard.writeText(textarea.value).then(() => {
+                    alert('✅ Copied to clipboard! Now paste it into your Space Engineers LCD panel.');
+                }).catch(err => {
+                    // Fallback for older browsers
+                    document.execCommand('copy');
+                    alert('✅ Copied to clipboard! Now paste it into your Space Engineers LCD panel.');
+                });
+            } catch (err) {
+                alert('❌ Failed to copy to clipboard. Please select the text manually and copy it.');
+            }
         }
 
         // Start the application
