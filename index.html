@@ -1623,6 +1623,8 @@
             
             openModal('Edit Room', [
                 { id: 'roomName', label: 'Room Name', type: 'text', value: room.name },
+                { id: 'roomX', label: 'X Position (grid)', type: 'number', value: room.position ? room.position[0] : 0, min: -10, max: 40 },
+                { id: 'roomY', label: 'Y Position (grid)', type: 'number', value: room.position ? room.position[1] : 0, min: -10, max: 40 },
                 { id: 'roomWidth', label: 'Width (grid cells)', type: 'number', value: room.size ? room.size[0] : 2, min: 1, max: 30 },
                 { id: 'roomHeight', label: 'Height (grid cells)', type: 'number', value: room.size ? room.size[1] : 2, min: 1, max: 30 },
                 { id: 'roomColor', label: 'Background Color', type: 'color', value: room.color },
@@ -1635,8 +1637,11 @@
             () => {
                 // Save callback
                 room.name = document.getElementById('roomName').value;
+                const x = parseInt(document.getElementById('roomX').value);
+                const y = parseInt(document.getElementById('roomY').value);
                 const width = parseInt(document.getElementById('roomWidth').value);
                 const height = parseInt(document.getElementById('roomHeight').value);
+                room.position = [x, y];
                 room.size = [width, height];
                 room.area = width * height;
                 room.color = document.getElementById('roomColor').value;
@@ -1665,8 +1670,11 @@
             setTimeout(() => {
                 const liveUpdateRoom = () => {
                     room.name = document.getElementById('roomName').value;
+                    const x = parseInt(document.getElementById('roomX').value) || 0;
+                    const y = parseInt(document.getElementById('roomY').value) || 0;
                     const width = parseInt(document.getElementById('roomWidth').value) || room.size[0];
                     const height = parseInt(document.getElementById('roomHeight').value) || room.size[1];
+                    room.position = [x, y];
                     room.size = [width, height];
                     room.area = width * height;
                     room.color = document.getElementById('roomColor').value;
@@ -1681,6 +1689,8 @@
                 };
                 
                 document.getElementById('roomName').addEventListener('input', liveUpdateRoom);
+                document.getElementById('roomX').addEventListener('input', liveUpdateRoom);
+                document.getElementById('roomY').addEventListener('input', liveUpdateRoom);
                 document.getElementById('roomWidth').addEventListener('input', liveUpdateRoom);
                 document.getElementById('roomHeight').addEventListener('input', liveUpdateRoom);
                 document.getElementById('roomColor').addEventListener('input', liveUpdateRoom);
@@ -2776,6 +2786,8 @@
                         { value: 'triangle', label: 'Triangle' }
                     ]
                 },
+                { id: 'outlineX', label: 'X Position (grid)', type: 'number', value: outline.position ? outline.position[0] : 0, min: -10, max: 40 },
+                { id: 'outlineY', label: 'Y Position (grid)', type: 'number', value: outline.position ? outline.position[1] : 0, min: -10, max: 40 },
                 { id: 'outlineWidth', label: 'Width (grid cells)', type: 'number', value: outline.size[0], min: 1, max: 30 },
                 { id: 'outlineHeight', label: 'Height (grid cells)', type: 'number', value: outline.size[1], min: 1, max: 30 },
                 { id: 'outlineColor', label: 'Color', type: 'color', value: outline.color },
@@ -2801,8 +2813,11 @@
                 // Save callback
                 outline.name = document.getElementById('outlineName').value || outline.type;
                 outline.type = document.getElementById('outlineType').value;
+                const x = parseInt(document.getElementById('outlineX').value);
+                const y = parseInt(document.getElementById('outlineY').value);
                 const width = parseInt(document.getElementById('outlineWidth').value);
                 const height = parseInt(document.getElementById('outlineHeight').value);
+                outline.position = [x, y];
                 outline.size = [width, height];
                 outline.color = document.getElementById('outlineColor').value;
                 outline.rotation = parseInt(document.getElementById('outlineRotation_input').value) || 0;
@@ -2843,8 +2858,11 @@
                 const liveUpdateOutline = () => {
                     outline.name = document.getElementById('outlineName').value || outline.type;
                     outline.type = document.getElementById('outlineType').value;
+                    const x = parseInt(document.getElementById('outlineX').value) || 0;
+                    const y = parseInt(document.getElementById('outlineY').value) || 0;
                     const width = parseInt(document.getElementById('outlineWidth').value) || outline.size[0];
                     const height = parseInt(document.getElementById('outlineHeight').value) || outline.size[1];
+                    outline.position = [x, y];
                     outline.size = [width, height];
                     outline.color = document.getElementById('outlineColor').value;
                     outline.rotation = parseInt(document.getElementById('outlineRotation_input').value) || 0;
@@ -2854,6 +2872,8 @@
                 
                 document.getElementById('outlineName').addEventListener('input', liveUpdateOutline);
                 document.getElementById('outlineType').addEventListener('change', liveUpdateOutline);
+                document.getElementById('outlineX').addEventListener('input', liveUpdateOutline);
+                document.getElementById('outlineY').addEventListener('input', liveUpdateOutline);
                 document.getElementById('outlineWidth').addEventListener('input', liveUpdateOutline);
                 document.getElementById('outlineHeight').addEventListener('input', liveUpdateOutline);
                 document.getElementById('outlineColor').addEventListener('input', liveUpdateOutline);
