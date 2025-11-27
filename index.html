@@ -272,17 +272,25 @@
             user-select: none;
         }
 
-        .canvas-control-btn.clicked { transform: scale(0.95); }
-        .canvas-control-btn:hover { background: rgba(255,255,255,0.02); }
-        .canvas-control-btn.active { background: var(--lcars-orange); color: #000; }
+          .canvas-control-btn.clicked { transform: scale(0.95); }
+          /* Use #A66500 as a muted non-hover color with modest transparency, and slightly stronger on hover.
+              Keep the active color as the bright LCARS orange. */
+          .canvas-control-btn { background: rgba(166,101,0,0.18); color: #A66500; }
+          .canvas-control-btn:hover { background: rgba(166,101,0,0.36); color: #A66500; }
+          .canvas-control-btn.active { background: var(--lcars-orange); color: #000; }
 
         .toolbar {
-            background: #111;
-            padding: 15px;
-            border-bottom: 3px solid var(--lcars-orange);
+            position: fixed;
+            top: 6px;
+            right: 6px;
+            background: transparent; /* remove gray background so help button stands alone */
+            padding: 6px; /* small padding to allow compact tab placement */
+            border-radius: 8px;
+            border: none;
             display: flex;
             flex-direction: column;
-            gap: 10px;
+            gap: 6px;
+            z-index: 10002;
         }
         
         .toolbar-row-1,
@@ -292,6 +300,13 @@
             flex-wrap: wrap;
             justify-content: flex-end;
         }
+
+        /* Help button compact style: show label on hover. Match deck-tab styling (light purple), small padding. */
+        .help-tab-btn { display: inline-flex; align-items: center; gap: 6px; padding: 5px; background: var(--lcars-purple); border: 1px solid var(--lcars-blue); border-radius: 8px; color: #000; cursor: pointer; }
+        .help-tab-btn .help-icon { display: inline-block; font-size: 14px; line-height: 1; }
+        .help-tab-btn .help-label { display:inline-block; opacity:0; width:0; overflow:hidden; transition: width 140ms ease, opacity 140ms ease; white-space: nowrap; color: #000; font-weight: bold; }
+        .help-tab-btn:hover { background: #e8d6f0; }
+        .help-tab-btn:hover .help-label { opacity:1; width:44px; margin-left:6px; }
 
         .canvas-container {
             flex: 1;
@@ -897,6 +912,13 @@
             </div>
 
             <div class="control-group">
+                <label>Banner Scale (multiplier)</label>
+                <input type="number" id="bannerScale" min="0.1" max="10" step="0.1" value="1.0" />
+            </div>
+
+            <!-- Arches scaling removed per user request; arches will no longer scale independently -->
+
+            <div class="control-group">
                 <label>Banner Font Offset X (px)</label>
                 <input type="number" id="bannerFontOffsetX" value="0" min="-100" max="100" />
             </div>
@@ -1042,15 +1064,23 @@
     <div class="canvas-area">
         <div class="toolbar">
             <div class="toolbar-row-1">
-                <button class="btn btn-secondary mobile-only" id="moveModeToggle" onclick="toggleMobileMoveMode()">🔒 Move Mode</button>
-                <button class="btn btn-secondary" onclick="showHelp()">❓ Help</button>
-                <button class="btn btn-secondary" id="toggleDetailsBtn" onclick="toggleDetails()">Details</button>
+                <!-- TODO - consider for removal: Desktop Move Mode button -->
+                <!--
+                <button class="btn btn-secondary" id="moveModeBtn" onclick="togglePanMode()">🔒 Move Mode</button>
+                -->
+                <!-- Help button: compact '?' icon expands to '?Help' on hover - styled like deck tabs -->
+                <button id="helpBtn" class="help-tab-btn" onclick="showHelp()" title="MDS Generator Help">
+                    <span class="help-icon">&nbsp;&nbsp;❓</span><span class="help-label">Help</span>
+                </button>
             </div>
+            <!-- TODO - consider for removal: Mobile move-mode controls -->
+            <!--
             <div class="toolbar-row-2 mobile-move-buttons" id="mobileMoveButtons">
                 <button class="btn btn-secondary" id="mobileToggleMode" onclick="toggleMobileMode()">📦 Rooms</button>
                 <button class="btn btn-secondary" onclick="cycleMobilePrev()">◀</button>
                 <button class="btn btn-secondary" onclick="cycleMobileNext()">▶</button>
             </div>
+            -->
         </div>
 
         <div class="canvas-container">
@@ -1269,7 +1299,10 @@
             auto_outline: true,
             outline_padding: 0.5,
             color_palette: "lcars",
-            manual_outline_mode: false
+            manual_outline_mode: false,
+            // Scale multipliers to allow larger canvases while keeping banner/arches legible
+            banner_scale: 1.0,
+            // arches_scale removed; arches no longer scale independently
         };
 
         let currentDeckIndex = 0;
@@ -1297,9 +1330,6 @@
         let isPinching = false;
         let pinchStartDistance = 0;
         let pinchStartZoom = 1;
-        // Temporary pan activation state (space or middle-button hold)
-        let tempPanActive = false;
-        let tempPanPrev = null;
         // Track whether mouse is hovering the canvas for wheel-hover zoom
         let isHoveringCanvas = false;
         // Track if user has manually panned/changed view; this prevents auto-centering on unrelated clicks
@@ -1382,7 +1412,8 @@
             if (!z || !p || !f) return;
             z.textContent = `zoom: ${view.zoom.toFixed(2)}`;
             p.textContent = `pan: ${Math.round(view.panX)}, ${Math.round(view.panY)}`;
-            f.textContent = `panMode: ${panMode ? 'on' : 'off'} • userMove: ${userHasPannedView ? 'yes' : 'no'}`;
+            // TODO - consider for removal: hide userHasPannedView debug info for now
+            f.textContent = `panMode: ${panMode ? 'on' : 'off'}`;
             const deckElm = document.getElementById('viewDebugDeck');
             if (deckElm) deckElm.textContent = `deck: ${getCurrentDeck().number}`;
             // Show debug elements if we have a view
@@ -1435,11 +1466,17 @@
             const btn = document.getElementById('panToggleBtn');
             if (typeof on === 'boolean') panMode = on; else panMode = !panMode;
             // When turning on pan mode, disable mobile move mode to avoid conflicts
+            /* TODO - consider for removal: mobile move mode integration
             if (panMode && isMobileMoveMode) {
                 toggleMobileMoveMode();
             }
+            */
             if (panMode) preservePanAfterDisable = false;
             if (btn) btn.classList.toggle('active', panMode);
+            /* TODO - consider for removal: desktop move button state sync
+            const moveBtn = document.getElementById('moveModeBtn');
+            if (moveBtn) moveBtn.classList.toggle('active', !panMode);
+            */
             // change cursor
             const svg = document.getElementById('mdsCanvas');
             svg.style.cursor = panMode ? 'grab' : 'default';
@@ -1510,6 +1547,8 @@
             if (config.panMode) { panMode = !!config.panMode; }
             const panBtn = document.getElementById('panToggleBtn');
             if (panBtn) panBtn.classList.toggle('active', panMode);
+            const moveBtn = document.getElementById('moveModeBtn');
+            if (moveBtn) moveBtn.classList.toggle('active', !panMode);
             const svg = document.getElementById('mdsCanvas');
             if (svg) svg.style.cursor = panMode ? 'grab' : 'default';
         }
@@ -1625,6 +1664,18 @@
                 render();
             });
 
+            // Banner scale multiplier
+            const bannerScaleInput = document.getElementById('bannerScale');
+            if (bannerScaleInput) {
+                bannerScaleInput.addEventListener('input', (e) => {
+                    config.banner_scale = parseFloat(e.target.value) || 1.0;
+                    saveToLocalStorage();
+                    render();
+                });
+            }
+
+            // Arches scaling UI removed - arches no longer scale independently
+
             document.getElementById('outlinePadding').addEventListener('input', (e) => {
                 config.outline_padding = parseFloat(e.target.value);
                 document.getElementById('outlinePaddingValue').textContent = e.target.value;
@@ -1695,10 +1746,15 @@
             // Canvas drag and drop - Mouse / Touch events
             const svg = document.getElementById('mdsCanvas');
             // Route events to either the new/pan handlers or the legacy (old-index) handlers
-            svg.addEventListener('mousedown', (e) => { if (panMode) handleMouseDown(e); else legacy_handleMouseDown(e); });
-            svg.addEventListener('mousemove', (e) => { if (panMode) handleMouseMove(e); else legacy_handleMouseMove(e); });
-            svg.addEventListener('mouseup',   (e) => { if (panMode) handleMouseUp(e);   else legacy_handleMouseUp(e); });
-            svg.addEventListener('mouseleave',(e) => { if (panMode) handleMouseUp(e);   else legacy_handleMouseUp(e); });
+            // Ignore middle-button in the routing (MMB has its own handler)
+            svg.addEventListener('mousedown', (e) => { if (e.button === 1) return; if (panMode) handleMouseDown(e); else legacy_handleMouseDown(e); });
+            svg.addEventListener('mousemove', (e) => {
+                // If middle button is held, prefer pan-aware movement
+                if ((e.buttons & 4) !== 0) { handleMouseMove(e); return; }
+                if (panMode) handleMouseMove(e); else legacy_handleMouseMove(e);
+            });
+            svg.addEventListener('mouseup',   (e) => { if (e.button === 1) return; if (panMode) handleMouseUp(e);   else legacy_handleMouseUp(e); });
+            svg.addEventListener('mouseleave',(e) => { if (e.button === 1) return; if (panMode) handleMouseUp(e);   else legacy_handleMouseUp(e); });
             
             // Touch: route to appropriate handler depending on pan mode / mobile move mode
             svg.addEventListener('touchstart', (e) => { if (panMode) return handleTouchStart(e); else return legacy_handleTouchStart(e); }, { passive: false });
@@ -1739,16 +1795,13 @@
                 svg.addEventListener('mouseenter', () => { isHoveringCanvas = true; });
                 svg.addEventListener('mouseleave', () => { isHoveringCanvas = false; });
 
-                // Middle-button (button===1) should temporarily activate pan on press
+                // Middle-button (button===1) starts panning while held (do not toggle persistent panMode)
                 svg.addEventListener('mousedown', (e) => {
                     if (e.button === 1) {
                         e.preventDefault();
-                        if (!tempPanActive) {
-                            tempPanPrev = panMode;
-                            tempPanActive = true;
-                            togglePanMode(true);
-                        }
-                        // Start panning immediately
+                        // Prevent immediate clamping/snap after recent zoom
+                        skipClampNextUpdate = true;
+                        // Start panning immediately without changing persistent panMode
                         isPanning = true;
                         panStart.x = e.clientX;
                         panStart.y = e.clientY;
@@ -1759,12 +1812,6 @@
                                 // End panning
                                 isPanning = false;
                                 saveViewToConfig();
-                                // Restore previous panMode
-                                if (tempPanActive) {
-                                    togglePanMode(!!tempPanPrev);
-                                    tempPanActive = false;
-                                    tempPanPrev = null;
-                                }
                                 document.removeEventListener('mouseup', onMiddleUp);
                             }
                         };
@@ -1773,7 +1820,7 @@
                 }, { passive: false });
             }
 
-            // Keyboard shortcuts: zoom/reset, P toggles pan/move, Space temporarily activates pan
+            // Keyboard shortcuts: zoom/reset, P toggles pan/move
             document.addEventListener('keydown', (e) => {
                 // Zoom keys (support both '=' and '+')
                 if (e.key === '=' || e.key === '+') { zoomIn(); }
@@ -1784,25 +1831,8 @@
                 if (e.key && e.key.toLowerCase() === 'p') {
                     togglePanMode();
                 }
-
-                // Spacebar: temporary pan while held
-                if (e.code === 'Space' && !tempPanActive) {
-                    // Prevent page from scrolling when holding space over the app
-                    e.preventDefault();
-                    tempPanPrev = panMode;
-                    tempPanActive = true;
-                    togglePanMode(true);
-                }
             });
-
-            document.addEventListener('keyup', (e) => {
-                if (e.code === 'Space' && tempPanActive) {
-                    // Restore the previous panMode
-                    togglePanMode(!!tempPanPrev);
-                    tempPanActive = false;
-                    tempPanPrev = null;
-                }
-            });
+            // (no keyup handler needed now)
         }
 
         function syncUIFromConfig() {
@@ -1814,6 +1844,9 @@
             document.getElementById('bannerFontSize').value = config.banner_font_size || 24;
             document.getElementById('bannerFontOffsetX').value = config.banner_font_offset_x || 0;
             document.getElementById('bannerFontOffsetY').value = config.banner_font_offset_y || 0;
+            // Sync banner/arches scale UI
+            const bs = document.getElementById('bannerScale'); if (bs) bs.value = (typeof config.banner_scale !== 'undefined') ? config.banner_scale : 1.0;
+            // archesScale UI removed; nothing to sync here.
             document.getElementById('outlinePadding').value = config.outline_padding;
             document.getElementById('outlineStyle').value = config.outline_style;
             document.getElementById('shipOutlineColor').value = config.ship_outline_color;
@@ -2196,51 +2229,65 @@
             const deck = getCurrentDeck();
             const cellSize = config.grid_cell_size;
             const padding = config.padding;
-            
+
+            // Determine header height from bannerScale only (arches no longer scale independently)
+            const bannerScale = (typeof config.banner_scale !== 'undefined') ? config.banner_scale : 1.0;
+            const headerH = Math.max(24, Math.round(60 * bannerScale));
+
             const width = deck.grid_width * cellSize + 2 * padding;
-            const height = deck.grid_height * cellSize + 100 + padding;
-            
+            // Keep the original layout baseline for the grid header area (100px). If the
+            // scaled header becomes taller than the baseline area, grow the svg and shift
+            // the main content down by extraTop so the header is fully visible.
+            const GRID_HEADER_BASE = 100;
+            const baselineBottom = GRID_HEADER_BASE - 20; // original bottom used for rect anchoring
+            const extraTop = Math.max(0, headerH - baselineBottom);
+            const height = deck.grid_height * cellSize + GRID_HEADER_BASE + padding + extraTop;
+
             svg.setAttribute('width', width);
             svg.setAttribute('height', height);
             svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
-            
+
             // Clear SVG
             svg.innerHTML = '';
-            
+
             // Background
             const bg = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
             bg.setAttribute('width', width);
             bg.setAttribute('height', height);
             bg.setAttribute('fill', currentPalette.background);
             svg.appendChild(bg);
-            
+
+            // yBase for content below header: shift down by extraTop if needed
+            const contentYBase = GRID_HEADER_BASE + extraTop;
+
             // Manual Outlines (drawn first, behind everything - always check all decks)
-            drawManualOutlines(svg, deck, padding, 100);
-            
-            // LCARS Arches
+            drawManualOutlines(svg, deck, padding, contentYBase);
+
+            // LCARS Arches (placement uses headerH)
             if (config.show_arches) {
-                drawLCARSArches(svg, width, height, 100);
+                drawLCARSArches(svg, width, height, headerH, extraTop);
             }
-            
+
             // Hull Outline
             if (config.auto_outline) {
-                drawHullOutline(svg, deck, padding, 100);
+                drawHullOutline(svg, deck, padding, contentYBase);
             }
-            
-            // Header
-            drawHeader(svg, deck, width);
-            
+
+            // Header (drawn after background/outlines so it overlays correctly). Pass headerH
+            // and extraTop so the header rect can be anchored to the baseline and shifted.
+            drawHeader(svg, deck, width, headerH, extraTop);
+
             // Grid
             if (config.show_grid) {
-                drawGrid(svg, deck, padding, 100);
+                drawGrid(svg, deck, padding, contentYBase);
             }
-            
+
             // Rooms
-            drawRooms(svg, deck, padding, 100);
-            
+            drawRooms(svg, deck, padding, contentYBase);
+
             // Draw selection highlights
-            drawSelectionHighlights(svg, deck, padding, 100);
-            
+            drawSelectionHighlights(svg, deck, padding, contentYBase);
+
             updateStatus();
         }
         
@@ -2289,14 +2336,16 @@
             }
         }
 
-        function drawHeader(svg, deck, width) {
+        // Accept optional extraTop offset to shift header down when render grew the canvas
+        function drawHeader(svg, deck, width, headerHeight, extraTop = 0) {
             const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
             
-            // Title bar
+            // Title bar (rectangle position will be set after computing headerHeight so
+            // we can anchor its bottom to the original baseline and grow the rect upward.)
             const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
             rect.setAttribute('x', config.padding);
-            rect.setAttribute('y', 20);
             rect.setAttribute('width', width - 2 * config.padding);
+            // temporary default; will be updated after computing headerHeight
             rect.setAttribute('height', 60);
             rect.setAttribute('fill', currentPalette.border);
             rect.setAttribute('rx', 20);
@@ -2304,15 +2353,31 @@
             
             // Determine vertical centering based on deck name visibility
             const showDeckName = config.show_deck_name !== false;
+            // Banner font size remains controlled by the explicit banner_font_size setting.
             const bannerFontSize = config.banner_font_size || 24;
+            // If caller supplied headerHeight (from render), use it; otherwise compute from banner_scale.
+            if (typeof headerHeight === 'undefined' || headerHeight === null) {
+                const bannerScale = (typeof config.banner_scale !== 'undefined') ? config.banner_scale : 1.0;
+                headerHeight = Math.max(24, Math.round(60 * bannerScale));
+            }
+            // update rect height now that headerHeight is known
+            rect.setAttribute('height', headerHeight);
+            // Anchor bottom of header to the original baseline so the header grows upward
+            // instead of pushing the grid down. Original layout used rect.y=20 and rect.height=60
+            // leaving a GRID_HEADER_BASE of 100. We'll replicate that baseline.
+            const GRID_HEADER_BASE = 100;
+            const baselineBottom = GRID_HEADER_BASE - 20; // original bottom: 80
+            const rectY = baselineBottom + extraTop - headerHeight;
+            rect.setAttribute('y', rectY);
             const offsetX = config.banner_font_offset_x || 0;
             const offsetY = config.banner_font_offset_y || 0;
-            const titleY = showDeckName ? 45 : 55; // Center vertically if no deck name
+            const titleY = 20 + Math.round(headerHeight / 2) + (showDeckName ? -6 : 6);
             
             // Title
             const title = document.createElementNS('http://www.w3.org/2000/svg', 'text');
             title.setAttribute('x', width / 2 + offsetX);
-            title.setAttribute('y', titleY + offsetY);
+            // Position title relative to rectY so it stays centered within the header rect
+            title.setAttribute('y', rectY + Math.round(headerHeight / 2) + (showDeckName ? -6 : 6) + offsetY);
             title.setAttribute('fill', config.text_color || currentPalette.background);
             title.setAttribute('font-family', 'Arial, sans-serif');
             title.setAttribute('font-size', bannerFontSize);
@@ -2326,7 +2391,8 @@
             if (showDeckName) {
                 const subtitle = document.createElementNS('http://www.w3.org/2000/svg', 'text');
                 subtitle.setAttribute('x', width / 2 + offsetX);
-                subtitle.setAttribute('y', 68 + offsetY);
+                const subtitleY = rectY + Math.round(headerHeight / 2) + Math.round(bannerFontSize * 0.7);
+                subtitle.setAttribute('y', subtitleY + offsetY);
                 subtitle.setAttribute('fill', config.text_color || currentPalette.background);
                 subtitle.setAttribute('font-family', 'Arial, sans-serif');
                 subtitle.setAttribute('font-size', Math.round(bannerFontSize * 0.6));
@@ -2340,34 +2406,35 @@
             svg.appendChild(g);
         }
 
-        function drawLCARSArches(svg, width, height, headerHeight) {
-            // Top left L-shape
+        function drawLCARSArches(svg, width, height, headerHeight, extraTop = 0) {
+            // Original simpler arches drawing – no stroke/corner scaling. Header height affects placement only.
+            // Top left L-shape (shifted down by extraTop if header caused canvas growth)
             const path1 = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-            path1.setAttribute('d', `M 10 10 L 10 ${headerHeight - 20} Q 10 ${headerHeight} 20 ${headerHeight} L 60 ${headerHeight}`);
+            path1.setAttribute('d', `M 10 ${10 + extraTop} L 10 ${headerHeight - 20 + extraTop} Q 10 ${headerHeight + extraTop} 20 ${headerHeight + extraTop} L 60 ${headerHeight + extraTop}`);
             path1.setAttribute('stroke', currentPalette.accent1);
             path1.setAttribute('stroke-width', 8);
             path1.setAttribute('fill', 'none');
             path1.setAttribute('stroke-linecap', 'round');
             svg.appendChild(path1);
-            
+
             // Top right arch
             const path2 = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-            path2.setAttribute('d', `M ${width - 60} ${headerHeight} L ${width - 20} ${headerHeight} Q ${width - 10} ${headerHeight} ${width - 10} ${headerHeight - 20} L ${width - 10} 10`);
+            path2.setAttribute('d', `M ${width - 60} ${headerHeight + extraTop} L ${width - 20} ${headerHeight + extraTop} Q ${width - 10} ${headerHeight + extraTop} ${width - 10} ${headerHeight - 20 + extraTop} L ${width - 10} ${10 + extraTop}`);
             path2.setAttribute('stroke', currentPalette.accent2);
             path2.setAttribute('stroke-width', 8);
             path2.setAttribute('fill', 'none');
             path2.setAttribute('stroke-linecap', 'round');
             svg.appendChild(path2);
-            
+
             // Corner circles
             const paletteColors = Object.values(currentPalette.colors);
             const corners = [
-                [15, 15, paletteColors[0]],
-                [width - 15, 15, paletteColors[1] || paletteColors[0]],
+                [15, 15 + extraTop, paletteColors[0]],
+                [width - 15, 15 + extraTop, paletteColors[1] || paletteColors[0]],
                 [15, height - 15, paletteColors[2] || paletteColors[0]],
                 [width - 15, height - 15, paletteColors[3] || paletteColors[0]]
             ];
-            
+
             corners.forEach(([cx, cy, color]) => {
                 const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
                 circle.setAttribute('cx', cx);
