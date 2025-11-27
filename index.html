@@ -1297,6 +1297,11 @@
         let isPinching = false;
         let pinchStartDistance = 0;
         let pinchStartZoom = 1;
+        // Temporary pan activation state (space or middle-button hold)
+        let tempPanActive = false;
+        let tempPanPrev = null;
+        // Track whether mouse is hovering the canvas for wheel-hover zoom
+        let isHoveringCanvas = false;
         // Track if user has manually panned/changed view; this prevents auto-centering on unrelated clicks
         let userHasPannedView = false;
         // When pan mode is disabled, allow preserving the last pan position without clamping
@@ -1714,8 +1719,10 @@
             // Wheel - Ctrl+Wheel to zoom around cursor; otherwise scroll as usual
             const container = document.querySelector('.canvas-container');
             if (container) {
+                // Support zooming with Ctrl+Wheel AND Shift+Wheel while hovering the canvas
                 container.addEventListener('wheel', (e) => {
-                    if (e.ctrlKey) {
+                    const shouldZoom = e.ctrlKey || (isHoveringCanvas && e.shiftKey);
+                    if (shouldZoom) {
                         // Zoom anchored at cursor position
                         e.preventDefault();
                         const rect = container.getBoundingClientRect();
@@ -1727,11 +1734,74 @@
                 }, { passive: false });
             }
 
-            // Keyboard shortcuts for zoom/reset
+            // Track hover over the SVG so Shift+Wheel while hovering can zoom
+            if (svg) {
+                svg.addEventListener('mouseenter', () => { isHoveringCanvas = true; });
+                svg.addEventListener('mouseleave', () => { isHoveringCanvas = false; });
+
+                // Middle-button (button===1) should temporarily activate pan on press
+                svg.addEventListener('mousedown', (e) => {
+                    if (e.button === 1) {
+                        e.preventDefault();
+                        if (!tempPanActive) {
+                            tempPanPrev = panMode;
+                            tempPanActive = true;
+                            togglePanMode(true);
+                        }
+                        // Start panning immediately
+                        isPanning = true;
+                        panStart.x = e.clientX;
+                        panStart.y = e.clientY;
+                        panStart.startPanX = view.panX;
+                        panStart.startPanY = view.panY;
+                        const onMiddleUp = (upEvent) => {
+                            if (upEvent.button === 1) {
+                                // End panning
+                                isPanning = false;
+                                saveViewToConfig();
+                                // Restore previous panMode
+                                if (tempPanActive) {
+                                    togglePanMode(!!tempPanPrev);
+                                    tempPanActive = false;
+                                    tempPanPrev = null;
+                                }
+                                document.removeEventListener('mouseup', onMiddleUp);
+                            }
+                        };
+                        document.addEventListener('mouseup', onMiddleUp);
+                    }
+                }, { passive: false });
+            }
+
+            // Keyboard shortcuts: zoom/reset, P toggles pan/move, Space temporarily activates pan
             document.addEventListener('keydown', (e) => {
-                if (e.key === '=') { zoomIn(); }
+                // Zoom keys (support both '=' and '+')
+                if (e.key === '=' || e.key === '+') { zoomIn(); }
                 else if (e.key === '-') { zoomOut(); }
                 else if (e.key === '0') { view.zoom = 1; saveViewToConfig(); updateTransform(); render(); }
+
+                // Toggle pan/move mode
+                if (e.key && e.key.toLowerCase() === 'p') {
+                    togglePanMode();
+                }
+
+                // Spacebar: temporary pan while held
+                if (e.code === 'Space' && !tempPanActive) {
+                    // Prevent page from scrolling when holding space over the app
+                    e.preventDefault();
+                    tempPanPrev = panMode;
+                    tempPanActive = true;
+                    togglePanMode(true);
+                }
+            });
+
+            document.addEventListener('keyup', (e) => {
+                if (e.code === 'Space' && tempPanActive) {
+                    // Restore the previous panMode
+                    togglePanMode(!!tempPanPrev);
+                    tempPanActive = false;
+                    tempPanPrev = null;
+                }
             });
         }
 
@@ -2992,8 +3062,10 @@
             const mouseX = event.clientX - rect.left;
             const mouseY = event.clientY - rect.top;
             // Convert from screen (transformed) coords back to SVG logical coords
-            const svgX = (mouseX - view.panX) / view.zoom;
-            const svgY = (mouseY - view.panY) / view.zoom;
+            // mouseX/mouseY are already relative to the transformed SVG bounding rect,
+            // so invert scaling only (translation is already included in rect.left/top).
+            const svgX = mouseX / view.zoom;
+            const svgY = mouseY / view.zoom;
 
             // If in pan mode, start panning instead of initiating drag on objects
             if (panMode && !isMobileMoveMode) {
@@ -3124,8 +3196,8 @@
             const rect = svg.getBoundingClientRect();
             const mouseX = event.clientX - rect.left;
             const mouseY = event.clientY - rect.top;
-            const svgX = (mouseX - view.panX) / view.zoom;
-            const svgY = (mouseY - view.panY) / view.zoom;
+            const svgX = mouseX / view.zoom;
+            const svgY = mouseY / view.zoom;
             
             const cellSize = config.grid_cell_size;
             const xBase = config.padding;
@@ -3280,14 +3352,17 @@
             const rect = svg.getBoundingClientRect();
             const mouseX = event.clientX - rect.left;
             const mouseY = event.clientY - rect.top;
-            
-            // Convert to grid coordinates
+            // Convert from screen (transformed) coords back to SVG logical coords
+            const svgX = mouseX / view.zoom;
+            const svgY = mouseY / view.zoom;
+
+            // Convert to grid coordinates (accounting for zoom/pan)
             const cellSize = config.grid_cell_size;
             const xBase = config.padding;
             const yBase = 100; // Header height
-            
-            const gridX = Math.floor((mouseX - xBase) / cellSize);
-            const gridY = Math.floor((mouseY - yBase) / cellSize);
+
+            const gridX = Math.floor((svgX - xBase) / cellSize);
+            const gridY = Math.floor((svgY - yBase) / cellSize);
             
             // On mobile in move mode, ONLY drag the cycle-selected item
             // Ignore which object is actually touched - always drag the selected one
@@ -3387,13 +3462,15 @@
             const rect = svg.getBoundingClientRect();
             const mouseX = event.clientX - rect.left;
             const mouseY = event.clientY - rect.top;
-            
+            const svgX = mouseX / view.zoom;
+            const svgY = mouseY / view.zoom;
+
             const cellSize = config.grid_cell_size;
             const xBase = config.padding;
             const yBase = 100;
-            
-            const gridX = Math.floor((mouseX - xBase) / cellSize);
-            const gridY = Math.floor((mouseY - yBase) / cellSize);
+
+            const gridX = Math.floor((svgX - xBase) / cellSize);
+            const gridY = Math.floor((svgY - yBase) / cellSize);
             
             // Handle outline dragging
             if (draggedOutlineIndex !== -1) {
