@@ -665,18 +665,37 @@
                 background: var(--lcars-orange);
                 color: #000;
             }
-            /* On small screens, keep canvas-controls inside the status bar flow so
-               they don't shrink the canvas container or interact with browser UI chrome. */
+            /* Keep canvas-controls floating above the canvas on small screens so
+               they do not consume layout space or shrink the SVG viewport. */
             .canvas-controls {
-                position: static !important;
-                bottom: auto !important;
-                right: auto !important;
-                margin-left: 12px;
+                position: fixed !important;
+                bottom: 80px !important; /* sit above the status bar */
+                right: 12px !important;
+                margin-left: 0;
                 display: flex;
                 gap: 8px;
                 align-items: center;
                 pointer-events: auto;
-                z-index: 10001;
+                z-index: 10002;
+            }
+            /* Reduce top toolbar fonts and keep toolbar rows on a single line */
+            .toolbar {
+                flex-direction: row !important;
+                gap: 6px !important;
+                align-items: center;
+            }
+            .toolbar-row-1, .toolbar-row-2 {
+                display: flex !important;
+                flex-wrap: nowrap !important;
+                gap: 6px !important;
+                align-items: center !important;
+            }
+            /* Shrink button fonts by ~33% on small screens and reduce padding so they fit */
+            .toolbar .help-tab-btn, .toolbar .btn, .canvas-control-btn, .toolbar button {
+                font-size: 0.67rem !important;
+                padding: 6px 8px !important;
+                min-width: 36px !important;
+                height: 34px !important;
             }
             /* Ensure canvas container retains usable height on small screens
                so toolbar/status bar don't shrink the SVG viewport. */
@@ -1129,7 +1148,7 @@
             <div class="status-info">
                 <span id="statusDeck">Deck: 1</span>
                 <span id="statusRooms">Rooms: 0</span>
-                <span id="statusCoverage">Coverage: 0%</span>
+                <!-- Coverage display removed per user request -->
                 <span id="viewDebugZoom" style="margin-left: 16px; color: var(--lcars-yellow); display:none;">zoom: 1</span>
                 <span id="viewDebugPan" style="margin-left: 10px; color: var(--lcars-yellow); display:none;">pan: 0, 0</span>
                 <span id="viewDebugFlags" style="margin-left: 10px; color: var(--lcars-yellow); display:none;">panMode: off</span>
@@ -2851,7 +2870,6 @@
             
             document.getElementById('statusDeck').textContent = `Deck: ${deck.number} (${deck.name})`;
             document.getElementById('statusRooms').textContent = `Rooms: ${deck.rooms.length}`;
-            document.getElementById('statusCoverage').textContent = `Coverage: ${coverage}%`;
         }
 
         function applyTextShadow(textElement) {
@@ -3078,6 +3096,10 @@
                     const svg = document.getElementById('mdsCanvas');
                     if (svg) svg.style.cursor = 'default';
                 }
+                // While in mobile Move Mode, disable default touch browser gestures
+                // on the SVG so touch+hold+drag works reliably.
+                const svgElm = document.getElementById('mdsCanvas');
+                if (svgElm) svgElm.style.touchAction = 'none';
                 // Auto-select first item when entering move mode
                 if (mobileSelectionMode === 'rooms') {
                     const rooms = getCurrentDeck().rooms;
@@ -3098,6 +3120,9 @@
                 buttons.classList.remove('active');
                 toggleBtn.classList.remove('active');
                 toggleBtn.textContent = '🔒 Move Mode';
+                // Restore default touch behavior on the SVG when leaving move mode
+                const svgElm = document.getElementById('mdsCanvas');
+                if (svgElm) svgElm.style.touchAction = 'auto';
                 selectedRoomIndex = -1;
                 selectedOutlineIndex = -1;
                 renderRoomList();
