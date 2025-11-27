@@ -1807,11 +1807,44 @@
                         panStart.y = e.clientY;
                         panStart.startPanX = view.panX;
                         panStart.startPanY = view.panY;
+
+                        // Show temporary UI state: make pan button appear active and show panMode: on
+                        if (panToggleBtn) {
+                            // store previous state so we can restore later
+                            panToggleBtn.dataset._mmbPrevActive = panToggleBtn.classList.contains('active') ? '1' : '0';
+                            panToggleBtn.classList.add('active');
+                        }
+                        const f = document.getElementById('viewDebugFlags');
+                        if (f) {
+                            f.dataset._mmbPrevDisplay = f.style.display || '';
+                            f.textContent = `panMode: on`;
+                            f.style.display = 'inline-block';
+                        }
+
                         const onMiddleUp = (upEvent) => {
                             if (upEvent.button === 1) {
                                 // End panning
                                 isPanning = false;
                                 saveViewToConfig();
+
+                                // Restore pan button UI to reflect persistent panMode
+                                if (panToggleBtn) {
+                                    const prev = panToggleBtn.dataset._mmbPrevActive === '1';
+                                    // If persistent panMode is on, keep active; otherwise restore previous
+                                    panToggleBtn.classList.toggle('active', panMode || prev);
+                                    delete panToggleBtn.dataset._mmbPrevActive;
+                                }
+
+                                // Restore debug flags display/text
+                                if (f) {
+                                    // Refresh to the real panMode text
+                                    updateViewDebug();
+                                    if (f.dataset._mmbPrevDisplay !== undefined) {
+                                        f.style.display = f.dataset._mmbPrevDisplay;
+                                        delete f.dataset._mmbPrevDisplay;
+                                    }
+                                }
+
                                 document.removeEventListener('mouseup', onMiddleUp);
                             }
                         };
@@ -2259,13 +2292,17 @@
 
             // yBase for content below header: shift down by extraTop if needed
             const contentYBase = GRID_HEADER_BASE + extraTop;
+            // Compute rectY so the banner is vertically centered within the header area
+            // (equal top and bottom margins). contentYBase is the distance from top
+            // of canvas to the start of the grid area.
+            const rectY = Math.round((contentYBase - headerH) / 2);
 
             // Manual Outlines (drawn first, behind everything - always check all decks)
             drawManualOutlines(svg, deck, padding, contentYBase);
 
-            // LCARS Arches (placement uses headerH)
+            // LCARS Arches (placement uses headerH and rectY)
             if (config.show_arches) {
-                drawLCARSArches(svg, width, height, headerH, extraTop);
+                drawLCARSArches(svg, width, height, headerH, rectY);
             }
 
             // Hull Outline
@@ -2273,9 +2310,10 @@
                 drawHullOutline(svg, deck, padding, contentYBase);
             }
 
-            // Header (drawn after background/outlines so it overlays correctly). Pass headerH
-            // and extraTop so the header rect can be anchored to the baseline and shifted.
-            drawHeader(svg, deck, width, headerH, extraTop);
+            // Header (drawn after background/outlines so it overlays correctly).
+            // Pass headerH and rectY so the header rect is vertically centered within
+            // the header area (equal top/bottom margins).
+            drawHeader(svg, deck, width, headerH, rectY);
 
             // Grid
             if (config.show_grid) {
@@ -2336,8 +2374,9 @@
             }
         }
 
-        // Accept optional extraTop offset to shift header down when render grew the canvas
-        function drawHeader(svg, deck, width, headerHeight, extraTop = 0) {
+        // Accept rectY to position the header rect (top Y) so banner can be
+        // vertically centered within the header area when the canvas grows.
+        function drawHeader(svg, deck, width, headerHeight, rectY = null) {
             const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
             
             // Title bar (rectangle position will be set after computing headerHeight so
@@ -2362,12 +2401,15 @@
             }
             // update rect height now that headerHeight is known
             rect.setAttribute('height', headerHeight);
-            // Anchor bottom of header to the original baseline so the header grows upward
-            // instead of pushing the grid down. Original layout used rect.y=20 and rect.height=60
-            // leaving a GRID_HEADER_BASE of 100. We'll replicate that baseline.
-            const GRID_HEADER_BASE = 100;
-            const baselineBottom = GRID_HEADER_BASE - 20; // original bottom: 80
-            const rectY = baselineBottom + extraTop - headerHeight;
+            // If caller didn't provide rectY, fall back to previous baseline anchoring
+            // behavior (keeping bottom anchored to baseline). Otherwise use rectY
+            // which was computed in render() to vertically center the banner.
+            if (rectY === null) {
+                const GRID_HEADER_BASE = 100;
+                const baselineBottom = GRID_HEADER_BASE - 20; // original bottom: 80
+                const extraTop = Math.max(0, headerHeight - baselineBottom);
+                rectY = baselineBottom + extraTop - headerHeight;
+            }
             rect.setAttribute('y', rectY);
             const offsetX = config.banner_font_offset_x || 0;
             const offsetY = config.banner_font_offset_y || 0;
@@ -2406,11 +2448,16 @@
             svg.appendChild(g);
         }
 
-        function drawLCARSArches(svg, width, height, headerHeight, extraTop = 0) {
-            // Original simpler arches drawing – no stroke/corner scaling. Header height affects placement only.
-            // Top left L-shape (shifted down by extraTop if header caused canvas growth)
+        function drawLCARSArches(svg, width, height, headerHeight, rectY = 0) {
+            // Original simpler arches drawing – no stroke/corner scaling.
+            // Use rectY (top Y of header rect) to position arches so they follow
+            // the banner when it's vertically centered.
+            const topDotY = rectY - 10;
+            const arcInnerY = rectY + headerHeight - 20;
+            const arcBottomY = rectY + headerHeight;
+            // Top left L-shape
             const path1 = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-            path1.setAttribute('d', `M 10 ${10 + extraTop} L 10 ${headerHeight - 20 + extraTop} Q 10 ${headerHeight + extraTop} 20 ${headerHeight + extraTop} L 60 ${headerHeight + extraTop}`);
+            path1.setAttribute('d', `M 10 ${topDotY} L 10 ${arcInnerY} Q 10 ${arcBottomY} 20 ${arcBottomY} L 60 ${arcBottomY}`);
             path1.setAttribute('stroke', currentPalette.accent1);
             path1.setAttribute('stroke-width', 8);
             path1.setAttribute('fill', 'none');
@@ -2419,7 +2466,7 @@
 
             // Top right arch
             const path2 = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-            path2.setAttribute('d', `M ${width - 60} ${headerHeight + extraTop} L ${width - 20} ${headerHeight + extraTop} Q ${width - 10} ${headerHeight + extraTop} ${width - 10} ${headerHeight - 20 + extraTop} L ${width - 10} ${10 + extraTop}`);
+            path2.setAttribute('d', `M ${width - 60} ${arcBottomY} L ${width - 20} ${arcBottomY} Q ${width - 10} ${arcBottomY} ${width - 10} ${arcInnerY} L ${width - 10} ${topDotY}`);
             path2.setAttribute('stroke', currentPalette.accent2);
             path2.setAttribute('stroke-width', 8);
             path2.setAttribute('fill', 'none');
@@ -2429,8 +2476,8 @@
             // Corner circles
             const paletteColors = Object.values(currentPalette.colors);
             const corners = [
-                [15, 15 + extraTop, paletteColors[0]],
-                [width - 15, 15 + extraTop, paletteColors[1] || paletteColors[0]],
+                [15, rectY - 5, paletteColors[0]],
+                [width - 15, rectY - 5, paletteColors[1] || paletteColors[0]],
                 [15, height - 15, paletteColors[2] || paletteColors[0]],
                 [width - 15, height - 15, paletteColors[3] || paletteColors[0]]
             ];
