@@ -37,7 +37,11 @@
 
         /* Sidebar Controls */
         .sidebar {
-            width: 350px;
+            /* Use percentage so sidebar keeps relative proportion on wide screens */
+            flex: 0 0 20%;
+            width: 20%;
+            min-width: 220px; /* keep usable */
+            max-width: 420px;
             background: #111;
             padding: 20px;
             overflow-y: auto;
@@ -234,11 +238,43 @@
 
         /* Main Canvas Area */
         .canvas-area {
-            flex: 1;
+            flex: 1 1 80%;
             display: flex;
             flex-direction: column;
             background: #000;
         }
+
+        /* Canvas overlay controls (zoom, pan toggle) */
+        .canvas-controls {
+            position: fixed; /* fixed to viewport so it stays visible */
+            bottom: 24px;
+            right: 24px;
+            display: flex;
+            gap: 8px;
+            z-index: 9999; /* above everything else */
+            pointer-events: auto;
+        }
+
+        .canvas-control-btn {
+            padding: 10px;
+            background: rgba(10,10,10,0.8);
+            color: var(--lcars-orange);
+            border: 1px solid var(--lcars-blue);
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: bold;
+            font-size: 18px;
+            min-width: 44px;
+            height: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            user-select: none;
+        }
+
+        .canvas-control-btn.clicked { transform: scale(0.95); }
+        .canvas-control-btn:hover { background: rgba(255,255,255,0.02); }
+        .canvas-control-btn.active { background: var(--lcars-orange); color: #000; }
 
         .toolbar {
             background: #111;
@@ -1008,6 +1044,7 @@
             <div class="toolbar-row-1">
                 <button class="btn btn-secondary mobile-only" id="moveModeToggle" onclick="toggleMobileMoveMode()">🔒 Move Mode</button>
                 <button class="btn btn-secondary" onclick="showHelp()">❓ Help</button>
+                <button class="btn btn-secondary" id="toggleDetailsBtn" onclick="toggleDetails()">Details</button>
             </div>
             <div class="toolbar-row-2 mobile-move-buttons" id="mobileMoveButtons">
                 <button class="btn btn-secondary" id="mobileToggleMode" onclick="toggleMobileMode()">📦 Rooms</button>
@@ -1020,11 +1057,19 @@
             <svg id="mdsCanvas" width="800" height="600"></svg>
         </div>
 
+        <div class="canvas-controls" id="canvasControls">
+            <button class="canvas-control-btn" id="zoomOutBtn" title="Zoom Out">−</button>
+            <button class="canvas-control-btn" id="zoomInBtn" title="Zoom In">+</button>
+            <button class="canvas-control-btn" id="panToggleBtn" title="Pan/Move">✋</button>
+        </div>
         <div class="status-bar">
             <div class="status-info">
                 <span id="statusDeck">Deck: 1</span>
                 <span id="statusRooms">Rooms: 0</span>
                 <span id="statusCoverage">Coverage: 0%</span>
+                <span id="viewDebugZoom" style="margin-left: 16px; color: var(--lcars-yellow); display:none;">zoom: 1</span>
+                <span id="viewDebugPan" style="margin-left: 10px; color: var(--lcars-yellow); display:none;">pan: 0, 0</span>
+                <span id="viewDebugFlags" style="margin-left: 10px; color: var(--lcars-yellow); display:none;">panMode: off</span>
             </div>
             <div>Space Engineers MDS Generator v2.0</div>
         </div>
@@ -1240,6 +1285,200 @@
         let isMobileMoveMode = false;
         let mobileSelectionMode = 'rooms'; // 'rooms' or 'outlines'
 
+        // View transform (zoom and pan) settings - imported from three-buttons
+        let view = { zoom: 1.0, panX: 0, panY: 0 };
+        const MIN_ZOOM = 0.2;
+        const MAX_ZOOM = 4.0;
+        let panMode = false; // When true, click-drag pans the canvas
+        let isPanning = false;
+        let panStart = { x: 0, y: 0, startPanX: 0, startPanY: 0 };
+        const VIEW_MARGIN_RATIO = 0.15; // 15% top and bottom margins
+        let skipClampNextUpdate = false;
+        let isPinching = false;
+        let pinchStartDistance = 0;
+        let pinchStartZoom = 1;
+        // Track if user has manually panned/changed view; this prevents auto-centering on unrelated clicks
+        let userHasPannedView = false;
+        // When pan mode is disabled, allow preserving the last pan position without clamping
+        let preservePanAfterDisable = false;
+
+        function clampPan(panX, panY, noClamp = false) {
+            try {
+                const svg = document.getElementById('mdsCanvas');
+                const container = document.querySelector('.canvas-container');
+                const svgWidth = parseFloat(svg.getAttribute('width')) || svg.clientWidth;
+                const svgHeight = parseFloat(svg.getAttribute('height')) || svg.clientHeight;
+                const scaledWidth = svgWidth * view.zoom;
+                const scaledHeight = svgHeight * view.zoom;
+                const availableWidth = container.clientWidth;
+                const availableHeight = container.clientHeight;
+
+                // If caller requested us to not clamp (force allow) OR preserving pan after disabling, bypass clamping
+                if (noClamp || preservePanAfterDisable) {
+                    return { x: panX, y: panY };
+                }
+
+                // If the scaled content is smaller than the container, center it horizontally/vertically
+                let minX = Math.min(0, availableWidth - scaledWidth);
+                let maxX = Math.max(0, availableWidth - scaledWidth);
+                let minY = Math.min(0, availableHeight - scaledHeight);
+                let maxY = Math.max(0, availableHeight - scaledHeight);
+
+                // The above yields min=0, max=0 when the scaled size fits; but we center instead of clamping
+                let clampedX = panX;
+                let clampedY = panY;
+
+                if (scaledWidth <= availableWidth) {
+                    clampedX = Math.round((availableWidth - scaledWidth) / 2);
+                } else {
+                    clampedX = Math.max(Math.min(panX, 0), availableWidth - scaledWidth);
+                }
+                if (scaledHeight <= availableHeight) {
+                    clampedY = Math.round((availableHeight - scaledHeight) / 2);
+                } else {
+                    clampedY = Math.max(Math.min(panY, 0), availableHeight - scaledHeight);
+                }
+                return { x: clampedX, y: clampedY };
+            } catch (err) {
+                return { x: panX, y: panY };
+            }
+        }
+
+        function updateTransform() {
+            const svg = document.getElementById('mdsCanvas');
+            if (!svg) return;
+            svg.style.transformOrigin = '0 0';
+            let clamped;
+            if (skipClampNextUpdate) {
+                clamped = { x: view.panX, y: view.panY };
+                skipClampNextUpdate = false;
+            } else {
+                clamped = clampPan(view.panX, view.panY, panMode);
+            }
+            view.panX = clamped.x;
+            view.panY = clamped.y;
+            svg.style.transform = `translate(${view.panX}px, ${view.panY}px) scale(${view.zoom})`;
+            updateViewDebug();
+        }
+
+        function saveViewToConfig() {
+            config.view = config.view || {};
+            config.view.zoom = view.zoom;
+            config.view.panX = view.panX;
+            config.view.panY = view.panY;
+            saveToLocalStorage();
+            updateViewDebug();
+        }
+
+        function updateViewDebug() {
+            const z = document.getElementById('viewDebugZoom');
+            const p = document.getElementById('viewDebugPan');
+            const f = document.getElementById('viewDebugFlags');
+            if (!z || !p || !f) return;
+            z.textContent = `zoom: ${view.zoom.toFixed(2)}`;
+            p.textContent = `pan: ${Math.round(view.panX)}, ${Math.round(view.panY)}`;
+            f.textContent = `panMode: ${panMode ? 'on' : 'off'} • userMove: ${userHasPannedView ? 'yes' : 'no'}`;
+            const deckElm = document.getElementById('viewDebugDeck');
+            if (deckElm) deckElm.textContent = `deck: ${getCurrentDeck().number}`;
+            // Show debug elements if we have a view
+            const debugElms = [z, p, f];
+            debugElms.forEach(e => { if (e && e.style) e.style.display = 'inline-block'; });
+        }
+
+        function setZoom(newZoom, anchorX = null, anchorY = null, noClamp = false) {
+            const oldZoom = view.zoom;
+            const z = document.getElementById('viewDebugZoom');
+            const p = document.getElementById('viewDebugPan');
+            const f = document.getElementById('viewDebugFlags');
+            if (!z || !p || !f) return;
+            const visible = z.style.display !== 'inline-block';
+            z.style.display = visible ? 'inline-block' : 'none';
+            p.style.display = visible ? 'inline-block' : 'none';
+            f.style.display = visible ? 'inline-block' : 'none';
+            // Update now to refresh values
+            updateViewDebug();
+            newZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, newZoom));
+            if (newZoom === oldZoom) return;
+            const container = document.querySelector('.canvas-container');
+            if (anchorX === null || anchorY === null) {
+                const rect = container.getBoundingClientRect();
+                anchorX = rect.width / 2;
+                anchorY = rect.height / 2;
+            }
+            const newPanX = anchorX - (anchorX - view.panX) * (newZoom / oldZoom);
+            const newPanY = anchorY - (anchorY - view.panY) * (newZoom / oldZoom);
+            view.zoom = newZoom;
+            // user actively changed view via zoom; treat as user interaction
+            userHasPannedView = true;
+            // A zoom is a deliberate user interaction; stop preserving an old pan after toggle
+            preservePanAfterDisable = false;
+            // If the caller doesn't want clamping (e.g., zoom buttons), skip clamp on next update
+            if (noClamp) skipClampNextUpdate = true;
+            const clamped = clampPan(newPanX, newPanY, noClamp || panMode);
+            view.panX = clamped.x;
+            view.panY = clamped.y;
+            saveViewToConfig();
+            updateTransform();
+            render();
+        }
+
+        function zoomIn() { setZoom(view.zoom * 1.15, null, null, true); }
+        function zoomOut() { setZoom(view.zoom / 1.15, null, null, true); }
+
+        function togglePanMode(on = null) {
+            // Toggle or set explicitly
+            const btn = document.getElementById('panToggleBtn');
+            if (typeof on === 'boolean') panMode = on; else panMode = !panMode;
+            // When turning on pan mode, disable mobile move mode to avoid conflicts
+            if (panMode && isMobileMoveMode) {
+                toggleMobileMoveMode();
+            }
+            if (panMode) preservePanAfterDisable = false;
+            if (btn) btn.classList.toggle('active', panMode);
+            // change cursor
+            const svg = document.getElementById('mdsCanvas');
+            svg.style.cursor = panMode ? 'grab' : 'default';
+            // Clear any dragging states so the editor doesn't get stuck
+            isDragging = false;
+            draggedRoomIndex = -1;
+            draggedOutlineIndex = -1;
+            // Ensure if we are disabling pan mode we also stop any ongoing panning
+            if (!panMode) {
+                isPanning = false;
+                // preserve the current pan position and avoid clamping on next update/lock
+                preservePanAfterDisable = true;
+            }
+            // Save to config so view mode persists
+            config.panMode = panMode;
+            saveToLocalStorage();
+            // When toggling off, preserve current pan but ensure no clamped snapping immediately
+            skipClampNextUpdate = true;
+            // If we're disabling pan and the view is not default center, mark it as user-panned
+            if (!panMode) {
+                try {
+                    const container = document.querySelector('.canvas-container');
+                    const deck = getCurrentDeck();
+                    const cellSize = config.grid_cell_size;
+                    const xBase = config.padding;
+                    const yBase = 100;
+                    const gridCenterX = xBase + (deck.grid_width * cellSize) / 2;
+                    const gridCenterY = yBase + (deck.grid_height * cellSize) / 2;
+                    const topMargin = Math.round(container.clientHeight * VIEW_MARGIN_RATIO);
+                    const availableHeight = container.clientHeight - (topMargin * 2);
+                    const centerPanX = Math.round(container.clientWidth / 2 - gridCenterX * view.zoom);
+                    const centerPanY = Math.round(topMargin + (availableHeight / 2) - gridCenterY * view.zoom);
+                    // If the view differences exceed a small epsilon, consider the user panned
+                    if (Math.abs(view.panX - centerPanX) > 2 || Math.abs(view.panY - centerPanY) > 2) {
+                        userHasPannedView = true;
+                    }
+                } catch (err) {
+                    // ignore errors computing center
+                }
+            }
+            updateTransform();
+            updateViewDebug();
+        }
+
         // Initialize
         function init() {
             // Load from localStorage first
@@ -1251,10 +1490,23 @@
             renderRoomList();
             renderOutlineList();
             
-            // Ensure render happens after DOM is fully ready
-            setTimeout(() => {
-                render();
-            }, 100);
+            // Restore view (zoom/pan) if available, or use defaults
+            if (config.view) {
+                view.zoom = config.view.zoom || view.zoom;
+                view.panX = config.view.panX || view.panX;
+                view.panY = config.view.panY || view.panY;
+                saveViewToConfig();
+                // Update transform after render
+                setTimeout(() => { updateTransform(); render(); updateViewDebug(); }, 50);
+            } else {
+                setTimeout(() => { render(); }, 50);
+            }
+            // Reflect pan mode UI if set in config
+            if (config.panMode) { panMode = !!config.panMode; }
+            const panBtn = document.getElementById('panToggleBtn');
+            if (panBtn) panBtn.classList.toggle('active', panMode);
+            const svg = document.getElementById('mdsCanvas');
+            if (svg) svg.style.cursor = panMode ? 'grab' : 'default';
         }
 
         // LocalStorage functions
@@ -1435,18 +1687,52 @@
                 render();
             });
             
-            // Canvas drag and drop - Mouse events
+            // Canvas drag and drop - Mouse / Touch events
             const svg = document.getElementById('mdsCanvas');
-            svg.addEventListener('mousedown', handleMouseDown);
-            svg.addEventListener('mousemove', handleMouseMove);
-            svg.addEventListener('mouseup', handleMouseUp);
-            svg.addEventListener('mouseleave', handleMouseUp);
+            // Route events to either the new/pan handlers or the legacy (old-index) handlers
+            svg.addEventListener('mousedown', (e) => { if (panMode) handleMouseDown(e); else legacy_handleMouseDown(e); });
+            svg.addEventListener('mousemove', (e) => { if (panMode) handleMouseMove(e); else legacy_handleMouseMove(e); });
+            svg.addEventListener('mouseup',   (e) => { if (panMode) handleMouseUp(e);   else legacy_handleMouseUp(e); });
+            svg.addEventListener('mouseleave',(e) => { if (panMode) handleMouseUp(e);   else legacy_handleMouseUp(e); });
             
-            // Canvas drag and drop - Touch events
-            svg.addEventListener('touchstart', handleTouchStart, { passive: false });
-            svg.addEventListener('touchmove', handleTouchMove, { passive: false });
-            svg.addEventListener('touchend', handleTouchEnd);
-            svg.addEventListener('touchcancel', handleTouchEnd);
+            // Touch: route to appropriate handler depending on pan mode / mobile move mode
+            svg.addEventListener('touchstart', (e) => { if (panMode) return handleTouchStart(e); else return legacy_handleTouchStart(e); }, { passive: false });
+            svg.addEventListener('touchmove',  (e) => { if (panMode) return handleTouchMove(e);  else return legacy_handleTouchMove(e); }, { passive: false });
+            svg.addEventListener('touchend',   (e) => { if (panMode) return handleTouchEnd(e);   else return legacy_handleTouchEnd(e); });
+            svg.addEventListener('touchcancel',(e) => { if (panMode) return handleTouchEnd(e);   else return legacy_handleTouchEnd(e); });
+
+            // Canvas control buttons
+            const zoomInBtn = document.getElementById('zoomInBtn');
+            const zoomOutBtn = document.getElementById('zoomOutBtn');
+            const panToggleBtn = document.getElementById('panToggleBtn');
+
+            const flashBtn = (btn) => { if (!btn) return; btn.classList.add('active'); setTimeout(()=>btn.classList.remove('active'), 140); };
+            if (zoomInBtn) zoomInBtn.addEventListener('click', (e) => { flashBtn(zoomInBtn); zoomIn(); });
+            if (zoomOutBtn) zoomOutBtn.addEventListener('click', (e) => { flashBtn(zoomOutBtn); zoomOut(); });
+            if (panToggleBtn) panToggleBtn.addEventListener('click', (e) => { togglePanMode(); });
+
+            // Wheel - Ctrl+Wheel to zoom around cursor; otherwise scroll as usual
+            const container = document.querySelector('.canvas-container');
+            if (container) {
+                container.addEventListener('wheel', (e) => {
+                    if (e.ctrlKey) {
+                        // Zoom anchored at cursor position
+                        e.preventDefault();
+                        const rect = container.getBoundingClientRect();
+                        const anchorX = e.clientX - rect.left;
+                        const anchorY = e.clientY - rect.top;
+                        const delta = e.deltaY > 0 ? 1/1.15 : 1.15;
+                        setZoom(view.zoom * delta, anchorX, anchorY, true);
+                    }
+                }, { passive: false });
+            }
+
+            // Keyboard shortcuts for zoom/reset
+            document.addEventListener('keydown', (e) => {
+                if (e.key === '=') { zoomIn(); }
+                else if (e.key === '-') { zoomOut(); }
+                else if (e.key === '0') { view.zoom = 1; saveViewToConfig(); updateTransform(); render(); }
+            });
         }
 
         function syncUIFromConfig() {
@@ -1730,6 +2016,8 @@
             });
             
             updateStatus();
+            // Apply view transform (zoom/pan) after rendering
+            updateTransform();
         }
 
         function selectRoom(index) {
@@ -2703,6 +2991,295 @@
             const rect = svg.getBoundingClientRect();
             const mouseX = event.clientX - rect.left;
             const mouseY = event.clientY - rect.top;
+            // Convert from screen (transformed) coords back to SVG logical coords
+            const svgX = (mouseX - view.panX) / view.zoom;
+            const svgY = (mouseY - view.panY) / view.zoom;
+
+            // If in pan mode, start panning instead of initiating drag on objects
+            if (panMode && !isMobileMoveMode) {
+                isPanning = true;
+                panStart.x = event.clientX;
+                panStart.y = event.clientY;
+                panStart.startPanX = view.panX;
+                panStart.startPanY = view.panY;
+                svg.style.cursor = 'grabbing';
+                event.preventDefault();
+                // if user starts panning, we no longer preserve post-disable pan state
+                preservePanAfterDisable = false;
+                return;
+            }
+
+            // Convert to grid coordinates
+            const cellSize = config.grid_cell_size;
+            const xBase = config.padding;
+            const yBase = 100; // Header height
+            
+            const gridX = Math.floor((svgX - xBase) / cellSize);
+            const gridY = Math.floor((svgY - yBase) / cellSize);
+            
+            // On mobile in move mode, ONLY drag the cycle-selected item
+            // Ignore which object is actually touched - always drag the selected one
+            if (isMobileMoveMode) {
+                // Drag selected room
+                if (selectedRoomIndex !== -1 && deck.rooms[selectedRoomIndex]) {
+                    const room = deck.rooms[selectedRoomIndex];
+                    if (room.position && room.size) {
+                        draggedRoomIndex = selectedRoomIndex;
+                        isDragging = true;
+                        const [rx, ry] = room.position;
+                        dragOffset.x = gridX - rx;
+                        dragOffset.y = gridY - ry;
+                        return;
+                    }
+                }
+                
+                // Drag selected outline
+                if (selectedOutlineIndex !== -1 && config.manual_outlines && config.manual_outlines[selectedOutlineIndex]) {
+                    const outline = config.manual_outlines[selectedOutlineIndex];
+                    if (outline.position && outline.size) {
+                        draggedOutlineIndex = selectedOutlineIndex;
+                        isDragging = true;
+                        const [ox, oy] = outline.position;
+                        dragOffset.x = gridX - ox;
+                        dragOffset.y = gridY - oy;
+                        return;
+                    }
+                }
+                
+                // No selected item - do nothing
+                return;
+            }
+            
+            // Desktop behavior: Check rooms FIRST (higher priority than outlines)
+            for (let i = deck.rooms.length - 1; i >= 0; i--) {
+                const room = deck.rooms[i];
+                if (room.position && room.size) {
+                    const [rx, ry] = room.position;
+                    const [rw, rh] = room.size;
+                    
+                    if (gridX >= rx && gridX < rx + rw && gridY >= ry && gridY < ry + rh) {
+                        draggedRoomIndex = i;
+                        isDragging = true;
+                        dragOffset.x = gridX - rx;
+                        dragOffset.y = gridY - ry;
+                        selectedRoomIndex = i;
+                        selectedOutlineIndex = -1; // Deselect outline when selecting room
+                        renderRoomList();
+                        renderOutlineList();
+                        render();
+                        return;
+                    }
+                }
+            }
+            
+            // Check manual outlines (lower priority) - use global outlines
+            if (config.manual_outlines && config.manual_outlines.length > 0) {
+                for (let i = config.manual_outlines.length - 1; i >= 0; i--) {
+                    const outline = config.manual_outlines[i];
+                    // Only allow dragging if visible on current deck
+                    if (outline.visible_on_decks && outline.visible_on_decks.includes(currentDeckIndex)) {
+                        if (outline.position && outline.size) {
+                            const [ox, oy] = outline.position;
+                            const [ow, oh] = outline.size;
+                            
+                            if (gridX >= ox && gridX < ox + ow && gridY >= oy && gridY < oy + oh) {
+                                draggedOutlineIndex = i;
+                                isDragging = true;
+                                dragOffset.x = gridX - ox;
+                                dragOffset.y = gridY - oy;
+                                selectedOutlineIndex = i;
+                                selectedRoomIndex = -1; // Deselect room when selecting outline
+                                renderOutlineList();
+                                renderRoomList();
+                                render();
+                                return;
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // Clicked on empty space - deselect everything
+            selectedRoomIndex = -1;
+            selectedOutlineIndex = -1;
+            renderRoomList();
+            renderOutlineList();
+            render();
+        }
+
+        function handleMouseMove(event) {
+            // Handle panning first
+            if (isPanning) {
+                const dx = event.clientX - panStart.x;
+                const dy = event.clientY - panStart.y;
+                view.panX = panStart.startPanX + dx;
+                view.panY = panStart.startPanY + dy;
+                updateTransform();
+                return;
+            }
+            if (!isDragging) return;
+            
+            const deck = getCurrentDeck();
+            const svg = document.getElementById('mdsCanvas');
+            const rect = svg.getBoundingClientRect();
+            const mouseX = event.clientX - rect.left;
+            const mouseY = event.clientY - rect.top;
+            const svgX = (mouseX - view.panX) / view.zoom;
+            const svgY = (mouseY - view.panY) / view.zoom;
+            
+            const cellSize = config.grid_cell_size;
+            const xBase = config.padding;
+            const yBase = 100;
+            
+            const gridX = Math.floor((svgX - xBase) / cellSize);
+            const gridY = Math.floor((svgY - yBase) / cellSize);
+            
+            // Handle outline dragging
+            if (draggedOutlineIndex !== -1) {
+                const outline = config.manual_outlines[draggedOutlineIndex];
+                // Allow outlines to flow off the grid (no boundary constraints)
+                const newX = gridX - dragOffset.x;
+                const newY = gridY - dragOffset.y;
+                outline.position = [newX, newY];
+                render();
+                return;
+            }
+            
+            // Handle room dragging
+            if (draggedRoomIndex !== -1) {
+                const room = deck.rooms[draggedRoomIndex];
+                const newX = Math.max(0, Math.min(gridX - dragOffset.x, deck.grid_width - room.size[0]));
+                const newY = Math.max(0, Math.min(gridY - dragOffset.y, deck.grid_height - room.size[1]));
+                room.position = [newX, newY];
+                render();
+            }
+        }
+
+        function handleMouseUp(event) {
+            if (isPanning) {
+                isPanning = false;
+                const svg = document.getElementById('mdsCanvas');
+                if (svg) svg.style.cursor = panMode ? 'grab' : 'default';
+                // Persist view when user releases pan
+                saveViewToConfig();
+                return;
+            }
+            if (isDragging) {
+                isDragging = false;
+                draggedRoomIndex = -1;
+                draggedOutlineIndex = -1;
+                saveToLocalStorage();
+                renderRoomList();
+                renderOutlineList();
+            }
+        }
+
+        // Touch event handlers
+        function handleTouchStart(event) {
+            event.preventDefault();
+            // Handle pinch (two-finger) start
+            if (event.touches && event.touches.length === 2) {
+                isPinching = true;
+                const dx = event.touches[0].clientX - event.touches[1].clientX;
+                const dy = event.touches[0].clientY - event.touches[1].clientY;
+                pinchStartDistance = Math.sqrt(dx * dx + dy * dy);
+                pinchStartZoom = view.zoom;
+                return;
+            }
+
+            // If pan mode is enabled and not mobile move mode, start panning via touch
+            if (panMode && !isMobileMoveMode) {
+                isPanning = true;
+                panStart.x = event.touches[0].clientX;
+                panStart.y = event.touches[0].clientY;
+                panStart.startPanX = view.panX;
+                panStart.startPanY = view.panY;
+                return;
+            }
+
+            // Only allow touch interaction when in mobile move mode for dragging rooms/outlines
+            if (!isMobileMoveMode) {
+                return;
+            }
+            const touch = event.touches[0];
+            const mouseEvent = new MouseEvent('mousedown', {
+                clientX: touch.clientX,
+                clientY: touch.clientY
+            });
+            handleMouseDown(mouseEvent);
+        }
+
+        function handleTouchMove(event) {
+            event.preventDefault();
+            // Pinch-to-zoom handling
+            if (isPinching && event.touches && event.touches.length === 2) {
+                const dx = event.touches[0].clientX - event.touches[1].clientX;
+                const dy = event.touches[0].clientY - event.touches[1].clientY;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+                if (pinchStartDistance > 0) {
+                    const scale = dist / pinchStartDistance;
+                    setZoom(pinchStartZoom * scale, null, null, true);
+                }
+                return;
+            }
+
+            // Panning
+            if (isPanning) {
+                const dx = event.touches[0].clientX - panStart.x;
+                const dy = event.touches[0].clientY - panStart.y;
+                view.panX = panStart.startPanX + dx;
+                view.panY = panStart.startPanY + dy;
+                updateTransform();
+                return;
+            }
+
+            // Only allow dragging in mobile move mode for typical item move
+            if (!isMobileMoveMode) {
+                return;
+            }
+            const touch = event.touches[0];
+            const mouseEvent = new MouseEvent('mousemove', {
+                clientX: touch.clientX,
+                clientY: touch.clientY
+            });
+            handleMouseMove(mouseEvent);
+        }
+
+        function handleTouchEnd(event) {
+            event.preventDefault();
+            // End pinch state
+            if (isPinching) {
+                isPinching = false;
+                pinchStartDistance = 0;
+                pinchStartZoom = view.zoom;
+                saveViewToConfig();
+                return;
+            }
+
+            // End panning state
+            if (isPanning) {
+                isPanning = false;
+                saveViewToConfig();
+                const svg = document.getElementById('mdsCanvas');
+                if (svg) svg.style.cursor = panMode ? 'grab' : 'default';
+                return;
+            }
+
+            // Only handle mouse up in move mode for drag end
+            if (!isMobileMoveMode) {
+                return;
+            }
+            const mouseEvent = new MouseEvent('mouseup', {});
+            handleMouseUp(mouseEvent);
+        }
+
+        // Legacy (old-index) drag and touch handlers (kept separate)
+        function legacy_handleMouseDown(event) {
+            const deck = getCurrentDeck();
+            const svg = document.getElementById('mdsCanvas');
+            const rect = svg.getBoundingClientRect();
+            const mouseX = event.clientX - rect.left;
+            const mouseY = event.clientY - rect.top;
             
             // Convert to grid coordinates
             const cellSize = config.grid_cell_size;
@@ -2802,7 +3379,7 @@
             render();
         }
 
-        function handleMouseMove(event) {
+        function legacy_handleMouseMove(event) {
             if (!isDragging) return;
             
             const deck = getCurrentDeck();
@@ -2839,7 +3416,7 @@
             }
         }
 
-        function handleMouseUp(event) {
+        function legacy_handleMouseUp(event) {
             if (isDragging) {
                 isDragging = false;
                 draggedRoomIndex = -1;
@@ -2850,8 +3427,7 @@
             }
         }
 
-        // Touch event handlers
-        function handleTouchStart(event) {
+        function legacy_handleTouchStart(event) {
             // Only allow touch interaction when in move mode
             if (!isMobileMoveMode) {
                 return;
@@ -2863,10 +3439,10 @@
                 clientX: touch.clientX,
                 clientY: touch.clientY
             });
-            handleMouseDown(mouseEvent);
+            legacy_handleMouseDown(mouseEvent);
         }
 
-        function handleTouchMove(event) {
+        function legacy_handleTouchMove(event) {
             // Only allow dragging in move mode
             if (!isMobileMoveMode) {
                 return;
@@ -2878,10 +3454,10 @@
                 clientX: touch.clientX,
                 clientY: touch.clientY
             });
-            handleMouseMove(mouseEvent);
+            legacy_handleMouseMove(mouseEvent);
         }
 
-        function handleTouchEnd(event) {
+        function legacy_handleTouchEnd(event) {
             // Only handle mouse up in move mode
             if (!isMobileMoveMode) {
                 return;
@@ -2889,7 +3465,7 @@
             
             event.preventDefault();
             const mouseEvent = new MouseEvent('mouseup', {});
-            handleMouseUp(mouseEvent);
+            legacy_handleMouseUp(mouseEvent);
         }
 
         // Manual Outline Functions
