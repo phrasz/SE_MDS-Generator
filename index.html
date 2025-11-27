@@ -678,6 +678,19 @@
                 pointer-events: auto;
                 z-index: 10001;
             }
+            /* Ensure canvas container retains usable height on small screens
+               so toolbar/status bar don't shrink the SVG viewport. */
+            .canvas-container {
+                height: calc(100vh - 140px);
+                min-height: 220px;
+            }
+            /* Make the SVG responsive inside the canvas container while
+               respecting the container's max height on mobile. */
+            #mdsCanvas {
+                width: 100% !important;
+                height: auto !important;
+                max-height: calc(100vh - 140px) !important;
+            }
         }
     </style>
 </head>
@@ -1437,29 +1450,20 @@
             const z = document.getElementById('viewDebugZoom');
             const p = document.getElementById('viewDebugPan');
             const f = document.getElementById('viewDebugFlags');
+            // Keep debug elements hidden in production per user preference.
             if (!z || !p || !f) return;
             z.textContent = `zoom: ${view.zoom.toFixed(2)}`;
             p.textContent = `pan: ${Math.round(view.panX)}, ${Math.round(view.panY)}`;
-            // TODO - consider for removal: hide userHasPannedView debug info for now
-            f.textContent = `panMode: ${panMode ? 'on' : 'off'} | panning: ${isPanning ? 'yes' : 'no'} | preservePanAfterDisable: ${preservePanAfterDisable ? 'yes' : 'no'}`;
-            const deckElm = document.getElementById('viewDebugDeck');
-            if (deckElm) deckElm.textContent = `deck: ${getCurrentDeck().number}`;
-            // Show debug elements if we have a view
-            const debugElms = [z, p, f];
-            debugElms.forEach(e => { if (e && e.style) e.style.display = 'inline-block'; });
+            // Do not display or update the flags text to the status bar.
+            f.textContent = '';
+            f.style.display = 'none';
+            z.style.display = 'none';
+            p.style.display = 'none';
         }
 
         function setZoom(newZoom, anchorX = null, anchorY = null, noClamp = false) {
             const oldZoom = view.zoom;
-            const z = document.getElementById('viewDebugZoom');
-            const p = document.getElementById('viewDebugPan');
-            const f = document.getElementById('viewDebugFlags');
-            if (!z || !p || !f) return;
-            const visible = z.style.display !== 'inline-block';
-            z.style.display = visible ? 'inline-block' : 'none';
-            p.style.display = visible ? 'inline-block' : 'none';
-            f.style.display = visible ? 'inline-block' : 'none';
-            // Update now to refresh values
+            // Refresh debug values (kept hidden per user preference)
             updateViewDebug();
             newZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, newZoom));
             if (newZoom === oldZoom) return;
@@ -1494,11 +1498,10 @@
             const btn = document.getElementById('panToggleBtn');
             if (typeof on === 'boolean') panMode = on; else panMode = !panMode;
             // When turning on pan mode, disable mobile move mode to avoid conflicts
-            /* TODO - consider for removal: mobile move mode integration
             if (panMode && isMobileMoveMode) {
+                // Turn off mobile move mode so pan takes precedence on desktop/hover
                 toggleMobileMoveMode();
             }
-            */
             if (panMode) preservePanAfterDisable = false;
             if (btn) btn.classList.toggle('active', panMode);
             /* TODO - consider for removal: desktop move button state sync
@@ -1787,40 +1790,27 @@
                     panStart.startPanX = view.panX;
                     panStart.startPanY = view.panY;
 
-                    // Show temporary UI state: make pan button appear active and show panMode: on
+                    // Start temporary panning. Highlight the pan button while MMB is held.
                     const panToggleBtn = document.getElementById('panToggleBtn');
                     if (panToggleBtn) {
                         panToggleBtn.dataset._mmbPrevActive = panToggleBtn.classList.contains('active') ? '1' : '0';
                         panToggleBtn.classList.add('active');
                     }
-                    const f = document.getElementById('viewDebugFlags');
-                    if (f) {
-                        f.dataset._mmbPrevDisplay = f.style.display || '';
-                        f.textContent = `panMode: on`;
-                        f.style.display = 'inline-block';
-                    }
 
                     const onMiddleUp = (upEvent) => {
                         // End panning (be permissive about event.button values)
                         isPanning = false;
+                        // Preserve the pan we just applied and avoid immediate clamping/snap
+                        // on the next transform/update (prevents snap-back when clicking).
+                        preservePanAfterDisable = true;
+                        skipClampNextUpdate = true;
                         saveViewToConfig();
 
                         // Restore pan button UI to reflect persistent panMode
                         if (panToggleBtn) {
                             const prev = panToggleBtn.dataset._mmbPrevActive === '1';
-                            // If persistent panMode is on, keep active; otherwise restore previous
                             panToggleBtn.classList.toggle('active', panMode || prev);
                             delete panToggleBtn.dataset._mmbPrevActive;
-                        }
-
-                        // Restore debug flags display/text
-                        if (f) {
-                            // Refresh to the real panMode text
-                            updateViewDebug();
-                            if (f.dataset._mmbPrevDisplay !== undefined) {
-                                f.style.display = f.dataset._mmbPrevDisplay;
-                                delete f.dataset._mmbPrevDisplay;
-                            }
                         }
 
                         document.removeEventListener('mouseup', onMiddleUp);
@@ -1857,7 +1847,9 @@
             // Wheel - Ctrl+Wheel to zoom around cursor; otherwise scroll as usual
             const container = document.querySelector('.canvas-container');
             if (container) {
-                // Support zooming with Ctrl+Wheel AND Shift+Wheel while hovering the canvas
+                // Support zooming with Ctrl+Wheel AND Shift+Wheel while hovering the canvas.
+                // When the mouse is over the canvas, prevent page scroll and use wheel
+                // to pan the view (unless user holds Ctrl/Shift to zoom).
                 container.addEventListener('wheel', (e) => {
                     const shouldZoom = e.ctrlKey || (isHoveringCanvas && e.shiftKey);
                     if (shouldZoom) {
@@ -1868,6 +1860,22 @@
                         const anchorY = e.clientY - rect.top;
                         const delta = e.deltaY > 0 ? 1/1.15 : 1.15;
                         setZoom(view.zoom * delta, anchorX, anchorY, true);
+                        return;
+                    }
+
+                    // If the mouse is over the canvas, prevent the default page scroll
+                    // and pan the canvas instead using the wheel deltas.
+                    if (isHoveringCanvas) {
+                        e.preventDefault();
+                        // Apply wheel deltas directly to pan. Positive deltaY moves content down.
+                        view.panX += e.deltaX;
+                        view.panY += e.deltaY;
+                        // Preserve this pan and avoid immediate clamp snapping
+                        preservePanAfterDisable = true;
+                        skipClampNextUpdate = true;
+                        userHasPannedView = true;
+                        updateTransform();
+                        saveViewToConfig();
                     }
                 }, { passive: false });
             }
@@ -3060,6 +3068,15 @@
                 buttons.classList.add('active');
                 toggleBtn.classList.add('active');
                 toggleBtn.textContent = '🔓 Exit Move Mode';
+                // Mobile move mode must not allow panning — ensure persistent pan mode is off
+                if (panMode) {
+                    // Turn off persistent pan mode and update UI
+                    panMode = false;
+                    const panBtn = document.getElementById('panToggleBtn');
+                    if (panBtn) panBtn.classList.toggle('active', false);
+                    const svg = document.getElementById('mdsCanvas');
+                    if (svg) svg.style.cursor = 'default';
+                }
                 // Auto-select first item when entering move mode
                 if (mobileSelectionMode === 'rooms') {
                     const rooms = getCurrentDeck().rooms;
