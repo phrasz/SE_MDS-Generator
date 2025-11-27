@@ -665,6 +665,19 @@
                 background: var(--lcars-orange);
                 color: #000;
             }
+            /* On small screens, keep canvas-controls inside the status bar flow so
+               they don't shrink the canvas container or interact with browser UI chrome. */
+            .canvas-controls {
+                position: static !important;
+                bottom: auto !important;
+                right: auto !important;
+                margin-left: 12px;
+                display: flex;
+                gap: 8px;
+                align-items: center;
+                pointer-events: auto;
+                z-index: 10001;
+            }
         }
     </style>
 </head>
@@ -1081,33 +1094,23 @@
     <div class="canvas-area">
         <div class="toolbar">
             <div class="toolbar-row-1">
-                <!-- TODO - consider for removal: Desktop Move Mode button -->
-                <!--
-                <button class="btn btn-secondary" id="moveModeBtn" onclick="togglePanMode()">🔒 Move Mode</button>
-                -->
+                <!-- Mobile-only Move Mode toggle (appears on small screens) -->
+                <button class="btn btn-secondary mobile-only" id="moveModeToggle" onclick="toggleMobileMoveMode()">🔒 Move Mode</button>
                 <!-- Help button: compact '?' icon expands to '?Help' on hover - styled like deck tabs -->
                 <button id="helpBtn" class="help-tab-btn" onclick="showHelp()" title="MDS Generator Help">
                     <span class="help-icon">&nbsp;&nbsp;❓</span><span class="help-label">Help</span>
                 </button>
             </div>
-            <!-- TODO - consider for removal: Mobile move-mode controls -->
-            <!--
+            <!-- Mobile move-mode controls: cycle/select when Move Mode is active (mobile-only) -->
             <div class="toolbar-row-2 mobile-move-buttons" id="mobileMoveButtons">
                 <button class="btn btn-secondary" id="mobileToggleMode" onclick="toggleMobileMode()">📦 Rooms</button>
                 <button class="btn btn-secondary" onclick="cycleMobilePrev()">◀</button>
                 <button class="btn btn-secondary" onclick="cycleMobileNext()">▶</button>
             </div>
-            -->
         </div>
 
         <div class="canvas-container">
             <svg id="mdsCanvas" width="800" height="600"></svg>
-        </div>
-
-        <div class="canvas-controls" id="canvasControls">
-            <button class="canvas-control-btn" id="zoomOutBtn" title="Zoom Out">−</button>
-            <button class="canvas-control-btn" id="zoomInBtn" title="Zoom In">+</button>
-            <button class="canvas-control-btn" id="panToggleBtn" title="Pan/Move">✋</button>
         </div>
         <div class="status-bar">
             <div class="status-info">
@@ -1117,6 +1120,12 @@
                 <span id="viewDebugZoom" style="margin-left: 16px; color: var(--lcars-yellow); display:none;">zoom: 1</span>
                 <span id="viewDebugPan" style="margin-left: 10px; color: var(--lcars-yellow); display:none;">pan: 0, 0</span>
                 <span id="viewDebugFlags" style="margin-left: 10px; color: var(--lcars-yellow); display:none;">panMode: off</span>
+            </div>
+            <!-- Canvas controls moved here so mobile layout doesn't shrink the canvas area -->
+            <div class="canvas-controls" id="canvasControls">
+                <button class="canvas-control-btn" id="zoomOutBtn" title="Zoom Out">−</button>
+                <button class="canvas-control-btn" id="zoomInBtn" title="Zoom In">+</button>
+                <button class="canvas-control-btn" id="panToggleBtn" title="Pan/Move">✋</button>
             </div>
             <div>Space Engineers MDS Generator v2.0</div>
         </div>
@@ -1405,7 +1414,9 @@
                 clamped = { x: view.panX, y: view.panY };
                 skipClampNextUpdate = false;
             } else {
-                clamped = clampPan(view.panX, view.panY, panMode);
+                // When actively panning (isPanning) or persistent panMode is on,
+                // bypass clamping so temporary or persistent pans aren't snapped.
+                clamped = clampPan(view.panX, view.panY, panMode || isPanning);
             }
             view.panX = clamped.x;
             view.panY = clamped.y;
@@ -1430,7 +1441,7 @@
             z.textContent = `zoom: ${view.zoom.toFixed(2)}`;
             p.textContent = `pan: ${Math.round(view.panX)}, ${Math.round(view.panY)}`;
             // TODO - consider for removal: hide userHasPannedView debug info for now
-            f.textContent = `panMode: ${panMode ? 'on' : 'off'}`;
+            f.textContent = `panMode: ${panMode ? 'on' : 'off'} | panning: ${isPanning ? 'yes' : 'no'} | preservePanAfterDisable: ${preservePanAfterDisable ? 'yes' : 'no'}`;
             const deckElm = document.getElementById('viewDebugDeck');
             if (deckElm) deckElm.textContent = `deck: ${getCurrentDeck().number}`;
             // Show debug elements if we have a view
@@ -1763,8 +1774,62 @@
             // Canvas drag and drop - Mouse / Touch events
             const svg = document.getElementById('mdsCanvas');
             // Route events to either the new/pan handlers or the legacy (old-index) handlers
-            // Ignore middle-button in the routing (MMB has its own handler)
-            svg.addEventListener('mousedown', (e) => { if (e.button === 1) return; if (panMode) handleMouseDown(e); else legacy_handleMouseDown(e); });
+            // Also handle Middle Mouse Button (MMB) here so temporary-pan works on first load.
+            svg.addEventListener('mousedown', (e) => {
+                if (e.button === 1) {
+                    e.preventDefault();
+                    // Prevent immediate clamping/snap after recent zoom
+                    skipClampNextUpdate = true;
+                    // Start panning immediately without changing persistent panMode
+                    isPanning = true;
+                    panStart.x = e.clientX;
+                    panStart.y = e.clientY;
+                    panStart.startPanX = view.panX;
+                    panStart.startPanY = view.panY;
+
+                    // Show temporary UI state: make pan button appear active and show panMode: on
+                    const panToggleBtn = document.getElementById('panToggleBtn');
+                    if (panToggleBtn) {
+                        panToggleBtn.dataset._mmbPrevActive = panToggleBtn.classList.contains('active') ? '1' : '0';
+                        panToggleBtn.classList.add('active');
+                    }
+                    const f = document.getElementById('viewDebugFlags');
+                    if (f) {
+                        f.dataset._mmbPrevDisplay = f.style.display || '';
+                        f.textContent = `panMode: on`;
+                        f.style.display = 'inline-block';
+                    }
+
+                    const onMiddleUp = (upEvent) => {
+                        // End panning (be permissive about event.button values)
+                        isPanning = false;
+                        saveViewToConfig();
+
+                        // Restore pan button UI to reflect persistent panMode
+                        if (panToggleBtn) {
+                            const prev = panToggleBtn.dataset._mmbPrevActive === '1';
+                            // If persistent panMode is on, keep active; otherwise restore previous
+                            panToggleBtn.classList.toggle('active', panMode || prev);
+                            delete panToggleBtn.dataset._mmbPrevActive;
+                        }
+
+                        // Restore debug flags display/text
+                        if (f) {
+                            // Refresh to the real panMode text
+                            updateViewDebug();
+                            if (f.dataset._mmbPrevDisplay !== undefined) {
+                                f.style.display = f.dataset._mmbPrevDisplay;
+                                delete f.dataset._mmbPrevDisplay;
+                            }
+                        }
+
+                        document.removeEventListener('mouseup', onMiddleUp);
+                    };
+                    document.addEventListener('mouseup', onMiddleUp);
+                    return;
+                }
+                if (panMode) handleMouseDown(e); else legacy_handleMouseDown(e);
+            });
             svg.addEventListener('mousemove', (e) => {
                 // If middle button is held, prefer pan-aware movement
                 if ((e.buttons & 4) !== 0) { handleMouseMove(e); return; }
@@ -1812,62 +1877,7 @@
                 svg.addEventListener('mouseenter', () => { isHoveringCanvas = true; });
                 svg.addEventListener('mouseleave', () => { isHoveringCanvas = false; });
 
-                // Middle-button (button===1) starts panning while held (do not toggle persistent panMode)
-                svg.addEventListener('mousedown', (e) => {
-                    if (e.button === 1) {
-                        e.preventDefault();
-                        // Prevent immediate clamping/snap after recent zoom
-                        skipClampNextUpdate = true;
-                        // Start panning immediately without changing persistent panMode
-                        isPanning = true;
-                        panStart.x = e.clientX;
-                        panStart.y = e.clientY;
-                        panStart.startPanX = view.panX;
-                        panStart.startPanY = view.panY;
-
-                        // Show temporary UI state: make pan button appear active and show panMode: on
-                        if (panToggleBtn) {
-                            // store previous state so we can restore later
-                            panToggleBtn.dataset._mmbPrevActive = panToggleBtn.classList.contains('active') ? '1' : '0';
-                            panToggleBtn.classList.add('active');
-                        }
-                        const f = document.getElementById('viewDebugFlags');
-                        if (f) {
-                            f.dataset._mmbPrevDisplay = f.style.display || '';
-                            f.textContent = `panMode: on`;
-                            f.style.display = 'inline-block';
-                        }
-
-                        const onMiddleUp = (upEvent) => {
-                            if (upEvent.button === 1) {
-                                // End panning
-                                isPanning = false;
-                                saveViewToConfig();
-
-                                // Restore pan button UI to reflect persistent panMode
-                                if (panToggleBtn) {
-                                    const prev = panToggleBtn.dataset._mmbPrevActive === '1';
-                                    // If persistent panMode is on, keep active; otherwise restore previous
-                                    panToggleBtn.classList.toggle('active', panMode || prev);
-                                    delete panToggleBtn.dataset._mmbPrevActive;
-                                }
-
-                                // Restore debug flags display/text
-                                if (f) {
-                                    // Refresh to the real panMode text
-                                    updateViewDebug();
-                                    if (f.dataset._mmbPrevDisplay !== undefined) {
-                                        f.style.display = f.dataset._mmbPrevDisplay;
-                                        delete f.dataset._mmbPrevDisplay;
-                                    }
-                                }
-
-                                document.removeEventListener('mouseup', onMiddleUp);
-                            }
-                        };
-                        document.addEventListener('mouseup', onMiddleUp);
-                    }
-                }, { passive: false });
+                // Middle-button panning handled in the main mousedown router above.
             }
 
             // Keyboard shortcuts: zoom/reset, P toggles pan/move
