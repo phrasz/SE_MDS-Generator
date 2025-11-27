@@ -1847,36 +1847,25 @@
             // Wheel - Ctrl+Wheel to zoom around cursor; otherwise scroll as usual
             const container = document.querySelector('.canvas-container');
             if (container) {
-                // Support zooming with Ctrl+Wheel AND Shift+Wheel while hovering the canvas.
-                // When the mouse is over the canvas, prevent page scroll and use wheel
-                // to pan the view (unless user holds Ctrl/Shift to zoom).
+                // Only zoom the canvas when Ctrl+Wheel is used while hovering the canvas.
+                // All other wheel events over the canvas are prevented to avoid page scroll.
                 container.addEventListener('wheel', (e) => {
-                    const shouldZoom = e.ctrlKey || (isHoveringCanvas && e.shiftKey);
-                    if (shouldZoom) {
-                        // Zoom anchored at cursor position
-                        e.preventDefault();
-                        const rect = container.getBoundingClientRect();
-                        const anchorX = e.clientX - rect.left;
-                        const anchorY = e.clientY - rect.top;
-                        const delta = e.deltaY > 0 ? 1/1.15 : 1.15;
-                        setZoom(view.zoom * delta, anchorX, anchorY, true);
-                        return;
-                    }
-
-                    // If the mouse is over the canvas, prevent the default page scroll
-                    // and pan the canvas instead using the wheel deltas.
+                    const rect = container.getBoundingClientRect();
+                    // If hovering the canvas, intercept wheel.
                     if (isHoveringCanvas) {
-                        e.preventDefault();
-                        // Apply wheel deltas directly to pan. Positive deltaY moves content down.
-                        view.panX += e.deltaX;
-                        view.panY += e.deltaY;
-                        // Preserve this pan and avoid immediate clamp snapping
-                        preservePanAfterDisable = true;
-                        skipClampNextUpdate = true;
-                        userHasPannedView = true;
-                        updateTransform();
-                        saveViewToConfig();
+                        if (e.ctrlKey) {
+                            // Zoom anchored at cursor position
+                            e.preventDefault();
+                            const anchorX = e.clientX - rect.left;
+                            const anchorY = e.clientY - rect.top;
+                            const delta = e.deltaY > 0 ? 1/1.15 : 1.15;
+                            setZoom(view.zoom * delta, anchorX, anchorY, true);
+                        } else {
+                            // Prevent page scroll while over canvas when Ctrl is not held
+                            e.preventDefault();
+                        }
                     }
+                    // If not hovering canvas, do nothing (allow sidebar/page scrolling)
                 }, { passive: false });
             }
 
@@ -1951,6 +1940,18 @@
 
         function getCurrentDeck() {
             return config.decks[currentDeckIndex];
+        }
+
+        // Compute the Y offset where grid content starts (header area plus any
+        // extra top space when banner/header grows). This mirrors the logic
+        // in `render()` so mouse/touch coordinates align with drawn content.
+        function computeContentYBase() {
+            const bannerScale = (typeof config.banner_scale !== 'undefined') ? config.banner_scale : 1.0;
+            const headerH = Math.max(24, Math.round(60 * bannerScale));
+            const GRID_HEADER_BASE = 100;
+            const baselineBottom = GRID_HEADER_BASE - 20; // original bottom used for rect anchoring
+            const extraTop = Math.max(0, headerH - baselineBottom);
+            return GRID_HEADER_BASE + extraTop;
         }
 
         function applyColorPalette() {
@@ -3242,7 +3243,7 @@
             // Convert to grid coordinates
             const cellSize = config.grid_cell_size;
             const xBase = config.padding;
-            const yBase = 100; // Header height
+            const yBase = computeContentYBase(); // Header height
             
             const gridX = Math.floor((svgX - xBase) / cellSize);
             const gridY = Math.floor((svgY - yBase) / cellSize);
@@ -3359,7 +3360,7 @@
             
             const cellSize = config.grid_cell_size;
             const xBase = config.padding;
-            const yBase = 100;
+            const yBase = computeContentYBase();
             
             const gridX = Math.floor((svgX - xBase) / cellSize);
             const gridY = Math.floor((svgY - yBase) / cellSize);
@@ -3517,7 +3518,7 @@
             // Convert to grid coordinates (accounting for zoom/pan)
             const cellSize = config.grid_cell_size;
             const xBase = config.padding;
-            const yBase = 100; // Header height
+            const yBase = computeContentYBase(); // Header height
 
             const gridX = Math.floor((svgX - xBase) / cellSize);
             const gridY = Math.floor((svgY - yBase) / cellSize);
@@ -3625,7 +3626,7 @@
 
             const cellSize = config.grid_cell_size;
             const xBase = config.padding;
-            const yBase = 100;
+            const yBase = computeContentYBase();
 
             const gridX = Math.floor((svgX - xBase) / cellSize);
             const gridY = Math.floor((svgY - yBase) / cellSize);
