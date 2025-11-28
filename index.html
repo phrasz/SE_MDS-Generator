@@ -757,6 +757,35 @@
                      max-height: none !important;
                      touch-action: none; /* allow JS to manage touch when needed */
                 }
+                /* Ensure top toolbar is fixed and above the canvas on mobile */
+                .toolbar {
+                    position: fixed !important;
+                    top: 6px !important;
+                    right: 6px !important;
+                    z-index: 10060 !important;
+                    display: flex !important;
+                    gap: 6px !important;
+                }
+                /* Keep the status bar fixed to the bottom so it's always visible */
+                .status-bar {
+                    position: fixed !important;
+                    left: 0 !important;
+                    right: 0 !important;
+                    bottom: 0 !important;
+                    z-index: 10005 !important;
+                }
+                /* Keep canvas-controls above the status bar and visible while panning */
+                .canvas-controls {
+                    position: fixed !important;
+                    right: 8px !important;
+                    bottom: 72px !important; /* sit above the fixed status bar */
+                    z-index: 10070 !important;
+                }
+                /* Give the canvas container some bottom padding so content isn't hidden
+                   behind the fixed status bar. */
+                .canvas-container {
+                    padding-bottom: 84px !important;
+                }
         }
     </style>
 </head>
@@ -3146,12 +3175,21 @@
                 toggleBtn.textContent = '🔓 Exit Move Mode';
                 // Mobile move mode must not allow panning — ensure persistent pan mode is off
                 if (panMode) {
-                    // Turn off persistent pan mode and update UI
+                    // Turn off persistent pan mode and update UI. Preserve the
+                    // current pan and avoid immediate clamping/snap so the user's
+                    // viewport doesn't jump when entering Move Mode.
                     panMode = false;
                     const panBtn = document.getElementById('panToggleBtn');
                     if (panBtn) panBtn.classList.toggle('active', false);
                     const svg = document.getElementById('mdsCanvas');
                     if (svg) svg.style.cursor = 'default';
+                    // Preserve current pan after disabling panMode and skip
+                    // clamping on the next transform update to avoid snap-back.
+                    preservePanAfterDisable = true;
+                    skipClampNextUpdate = true;
+                    // Mark that the user has panned the view so auto-centering
+                    // logic won't override their position.
+                    userHasPannedView = true;
                 }
                 // While in mobile Move Mode, disable default touch browser gestures
                 // on the SVG so touch+hold+drag works reliably.
