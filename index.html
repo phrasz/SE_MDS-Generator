@@ -331,7 +331,9 @@
 
             .canvas-container {
                 flex: 1;
-                overflow: visible;
+                overflow: auto;
+                position: relative;
+                z-index: 1;
                 /* Remove vertical padding so the SVG border sits at the outermost pixels
                     (no extra top/bottom whitespace). Keep horizontal padding for layout. */
                 padding: 0 20px;
@@ -354,6 +356,8 @@
                 /* The SVG dimensions are authoritative (set via attributes/JS). Avoid
                     CSS-based max-width/max-height which would scale the canvas to the
                     user's viewport and change the border size. */
+            position: relative;
+            z-index: 0;
         }
 
         /* Room List */
@@ -758,7 +762,7 @@
                  .canvas-container {
                      max-height: calc(100vh - 140px);
                      min-height: 220px;
-                     overflow: visible !important;
+                     overflow: auto !important;
                      padding: 0 10px !important;
                      display: flex;
                      justify-content: center;
@@ -768,13 +772,15 @@
                     intrinsic size (attributes/JS) is authoritative for exports and
                     rendering; preventing CSS max-width/max-height avoids accidental
                     scaling that moves borders or changes pixel dimensions. */
-                #mdsCanvas {
+                 #mdsCanvas {
                      width: auto !important;
                      height: auto !important;
                      max-width: none !important;
                      max-height: none !important;
                      touch-action: none; /* allow JS to manage touch when needed */
-                }
+                     position: relative;
+                     z-index: 0;
+                 }
                 /* Ensure top toolbar is fixed and above the canvas on mobile */
                 .toolbar {
                     position: fixed !important;
@@ -2237,7 +2243,13 @@
             const flashBtn = (btn) => { if (!btn) return; btn.classList.add('active'); setTimeout(()=>btn.classList.remove('active'), 140); };
             if (zoomInBtn) zoomInBtn.addEventListener('click', (e) => { flashBtn(zoomInBtn); zoomIn(); });
             if (zoomOutBtn) zoomOutBtn.addEventListener('click', (e) => { flashBtn(zoomOutBtn); zoomOut(); });
-            if (panToggleBtn) panToggleBtn.addEventListener('click', (e) => { togglePanMode(); });
+            if (panToggleBtn) panToggleBtn.addEventListener('click', (e) => {
+                // If Move Mode is active, cancel it before enabling persistent pan
+                if (!panMode && isMobileMoveMode) {
+                    toggleMobileMoveMode();
+                }
+                togglePanMode();
+            });
 
             // Wheel - Ctrl+Wheel to zoom around cursor; otherwise scroll as usual
             const container = document.querySelector('.canvas-container');
@@ -3505,34 +3517,46 @@
 
         // Mobile Move Mode Functions
         function toggleMobileMoveMode() {
+            // Toggle move mode and ensure all transient touch/pan state is cleared
             isMobileMoveMode = !isMobileMoveMode;
             const buttons = document.getElementById('mobileMoveButtons');
             const toggleBtn = document.getElementById('moveModeToggle');
-            
+
+            // Cancel any visual progress / timers and transient two-finger pan
+            try {
+                cancelAllTouchVisuals();
+            } catch (err) {}
+            try { if (twoFingerTimerId && typeof twoFingerTimerId === 'number') { clearTimeout(twoFingerTimerId); } twoFingerTimerId = null; } catch (err) {}
+            try { if (multiFingerTimerId && typeof multiFingerTimerId === 'number') { clearTimeout(multiFingerTimerId); } multiFingerTimerId = null; } catch (err) {}
+            try { if (longPressTimerId) { clearTimeout(longPressTimerId); } longPressTimerId = null; } catch (err) {}
+            twoFingerHoldActive = false;
+            multiFingerHoldActive = false;
+            isPinching = false;
+            // Remove transient single-touch move listener if present
+            try {
+                const svg = document.getElementById('mdsCanvas');
+                if (activeSingleTouchMoveHandler && svg) {
+                    svg.removeEventListener('touchmove', activeSingleTouchMoveHandler);
+                    activeSingleTouchMoveHandler = null;
+                }
+            } catch (err) {}
+
             if (isMobileMoveMode) {
                 buttons.classList.add('active');
                 toggleBtn.classList.add('active');
                 toggleBtn.textContent = '🔓 Exit Move Mode';
-                // Mobile move mode must not allow panning — ensure persistent pan mode is off
+                // When entering Move Mode, ensure persistent pan mode is OFF
                 if (panMode) {
-                    // Turn off persistent pan mode and update UI. Preserve the
-                    // current pan and avoid immediate clamping/snap so the user's
-                    // viewport doesn't jump when entering Move Mode.
                     panMode = false;
                     const panBtn = document.getElementById('panToggleBtn');
                     if (panBtn) panBtn.classList.toggle('active', false);
                     const svg = document.getElementById('mdsCanvas');
                     if (svg) svg.style.cursor = 'default';
-                    // Preserve current pan after disabling panMode and skip
-                    // clamping on the next transform update to avoid snap-back.
                     preservePanAfterDisable = true;
                     skipClampNextUpdate = true;
-                    // Mark that the user has panned the view so auto-centering
-                    // logic won't override their position.
                     userHasPannedView = true;
                 }
-                // While in mobile Move Mode, disable default touch browser gestures
-                // on the SVG so touch+hold+drag works reliably.
+                // Disable default touch actions while moving items
                 const svgElm = document.getElementById('mdsCanvas');
                 if (svgElm) svgElm.style.touchAction = 'none';
                 // Auto-select first item when entering move mode
@@ -3548,18 +3572,6 @@
                         selectedRoomIndex = -1;
                     }
                 }
-                renderRoomList();
-                renderOutlineList();
-                render();
-                // Ensure toolbar/status/controls are visible when entering move mode
-                const toolbar = document.querySelector('.toolbar');
-                const status = document.querySelector('.status-bar');
-                const canvasControls = document.getElementById('canvasControls');
-                const menuToggle = document.getElementById('menuToggle');
-                if (toolbar) toolbar.style.display = 'flex';
-                if (status) status.style.display = 'flex';
-                if (canvasControls) canvasControls.style.display = 'inline-flex';
-                if (menuToggle) menuToggle.style.display = 'flex';
             } else {
                 buttons.classList.remove('active');
                 toggleBtn.classList.remove('active');
@@ -3569,19 +3581,22 @@
                 if (svgElm) svgElm.style.touchAction = 'auto';
                 selectedRoomIndex = -1;
                 selectedOutlineIndex = -1;
-                renderRoomList();
-                renderOutlineList();
-                render();
-                // Restore displays explicitly when leaving move mode (defensive)
-                const toolbar = document.querySelector('.toolbar');
-                const status = document.querySelector('.status-bar');
-                const canvasControls = document.getElementById('canvasControls');
-                const menuToggle = document.getElementById('menuToggle');
-                if (toolbar) toolbar.style.display = 'flex';
-                if (status) status.style.display = 'flex';
-                if (canvasControls) canvasControls.style.display = 'inline-flex';
-                if (menuToggle) menuToggle.style.display = 'flex';
             }
+
+            // Re-render UI lists and canvas to reflect selection changes
+            renderRoomList();
+            renderOutlineList();
+            render();
+
+            // Ensure toolbar/status/controls remain visible (defensive)
+            const toolbar = document.querySelector('.toolbar');
+            const status = document.querySelector('.status-bar');
+            const canvasControls = document.getElementById('canvasControls');
+            const menuToggle = document.getElementById('menuToggle');
+            if (toolbar) toolbar.style.display = 'flex';
+            if (status) status.style.display = 'flex';
+            if (canvasControls) canvasControls.style.display = 'inline-flex';
+            if (menuToggle) menuToggle.style.display = 'flex';
         }
         
         function toggleMobileMode() {
