@@ -313,35 +313,31 @@
         .help-tab-btn:hover { background: #e8d6f0; }
         .help-tab-btn:hover .help-label { opacity:1; width:44px; margin-left:6px; }
 
-        .canvas-container {
-            flex: 1;
-            overflow: auto;
-            padding: 20px;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-        }
+          .canvas-container {
+                flex: 1;
+                overflow: auto;
+                /* Remove vertical padding so the SVG border sits at the outermost pixels
+                    (no extra top/bottom whitespace). Keep horizontal padding for layout. */
+                padding: 0 20px;
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                /* The SVG's size is controlled by its own attributes and rendering logic.
+                    Do not constrain the canvas container by viewport size — keep overflow
+                    so users on smaller screens can scroll, and large screens won't force
+                    the SVG to scale. */
+                margin: 0 auto;
+          }
 
         #mdsCanvas {
+            display: block;
+            box-sizing: border-box;
+            margin: 0;
             border: 2px solid var(--lcars-blue);
             background: #000;
-        }
-
-        /* Prevent the SVG canvas from becoming excessively wide on desktop
-           in the same way we restrict height on small screens. The sidebar
-           occupies ~20% with a min-width — reserve horizontal space so the
-           canvas doesn't overflow and the border remains visually reasonable
-           when zooming. This mirrors the mobile "max-height" rule but
-           applied horizontally for larger viewports. */
-        .canvas-container {
-            max-width: calc(100vw - 260px);
-            box-sizing: border-box;
-        }
-
-        #mdsCanvas {
-            max-width: calc(100vw - 260px);
-            width: auto;
-            height: auto;
+                /* The SVG dimensions are authoritative (set via attributes/JS). Avoid
+                    CSS-based max-width/max-height which would scale the canvas to the
+                    user's viewport and change the border size. */
         }
 
         /* Room List */
@@ -743,12 +739,19 @@
             .canvas-container {
                 height: calc(100vh - 140px);
                 min-height: 220px;
+                /* Allow transformed SVG content to be visible when panned on small screens
+                   instead of being clipped by the container's scroll area. Remove vertical
+                   padding so the SVG border remains the true outer edge. */
+                overflow: visible !important;
+                padding: 0 10px !important;
             }
             /* Make the SVG responsive inside the canvas container while
-               respecting the container's max height on mobile. */
+               respecting the container's max height on mobile. Use a safe max-width
+               so panning/transform does not move the rendered portion entirely out of view. */
             #mdsCanvas {
-                width: 100% !important;
+                width: auto !important;
                 height: auto !important;
+                max-width: calc(100vw - 32px) !important;
                 max-height: calc(100vh - 140px) !important;
             }
         }
