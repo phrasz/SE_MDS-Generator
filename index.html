@@ -1249,10 +1249,8 @@
             <svg id="mdsCanvas" width="800" height="600"></svg>
             <!-- Touch-hold overlay: appears under the finger during long-press -->
             <!-- Enlarged touch-hold overlay (about 4x bigger) so finger doesn't occlude it -->
-            <svg id="touchHoldOverlay" class="touch-hold-overlay" width="256" height="256" viewBox="0 0 320 320" aria-hidden="true">
-                <circle cx="160" cy="160" r="120" stroke="rgba(255,156,0,0.12)" stroke-width="20" fill="none"></circle>
-                <circle id="touchHoldProgress" cx="160" cy="160" r="120" stroke="var(--lcars-orange)" stroke-width="16" fill="none" stroke-linecap="round" transform="rotate(-90 160 160)"></circle>
-            </svg>
+            <!-- Touch-hold overlay removed per user preference. Progress for
+                 three-finger hold is shown by filling the Move Mode button. -->
         </div>
         <div class="status-bar">
             <div class="status-info">
@@ -1513,6 +1511,8 @@
         let touchTapMoved = false;
         // Active transient single-touch move handler so we can remove it on release
         let activeSingleTouchMoveHandler = null;
+        // Long-press timer id (no overlay visual)
+        let longPressTimerId = null;
         // Two-/multi-finger hold timers
         let twoFingerTimerId = null;
         let multiFingerTimerId = null;
@@ -1940,8 +1940,8 @@
             // Also handle Middle Mouse Button (MMB) here so temporary-pan works on first load.
             svg.addEventListener('touchstart', (e) => {
                 // Cancel any previous timers (defensive)
-                if (twoFingerTimerId) { clearTimeout(twoFingerTimerId); twoFingerTimerId = null; }
-                if (multiFingerTimerId) { clearTimeout(multiFingerTimerId); multiFingerTimerId = null; }
+                if (typeof twoFingerTimerId === 'number') { clearTimeout(twoFingerTimerId); twoFingerTimerId = null; } else { twoFingerTimerId = null; }
+                if (typeof multiFingerTimerId === 'number') { clearTimeout(multiFingerTimerId); multiFingerTimerId = null; } else { multiFingerTimerId = null; }
 
                 const touchCount = e.touches ? e.touches.length : 0;
 
@@ -1950,13 +1950,18 @@
                     // record base positions to allow cancelling if user moves fingers
                     const startPositions = Array.from(e.touches).map(t => ({ x: t.clientX, y: t.clientY }));
                     const moveThreshold = 12; // px
-                    multiFingerTimerId = setTimeout(() => {
+                    // Start the visual progress on the Move Mode toggle instead of using a raw timer
+                    const moveBtn = document.getElementById('moveModeToggle');
+                    startMoveButtonProgress(moveBtn, 2000, 'var(--lcars-orange)', () => {
                         multiFingerHoldActive = true;
                         // toggle Move Mode (T flip-flop)
                         toggleMobileMoveMode();
-                        // ensure two-finger pannning won't auto-start while move-mode is on
-                        if (twoFingerTimerId) { clearTimeout(twoFingerTimerId); twoFingerTimerId = null; }
-                    }, 2000);
+                        // ensure two-finger panning won't auto-start while move-mode is on
+                        if (typeof twoFingerTimerId === 'number') { clearTimeout(twoFingerTimerId); twoFingerTimerId = null; } else { twoFingerTimerId = null; }
+                        multiFingerTimerId = null;
+                    });
+                    // Use a simple marker so cancel logic knows progress is active
+                    multiFingerTimerId = true;
 
                     const cancelMultiIfMove = (ev) => {
                         // if any touch moved beyond threshold before timeout, cancel
@@ -1965,7 +1970,12 @@
                             const start = startPositions[i] || startPositions[0];
                             if (!start) continue;
                             if (Math.hypot(cur.clientX - start.x, cur.clientY - start.y) > moveThreshold) {
-                                if (multiFingerTimerId) { clearTimeout(multiFingerTimerId); multiFingerTimerId = null; }
+                                if (multiFingerTimerId) {
+                                    // Cancel the button progress animation
+                                    const moveBtn = document.getElementById('moveModeToggle');
+                                    cancelMoveButtonProgress(moveBtn);
+                                    multiFingerTimerId = null;
+                                }
                                 svg.removeEventListener('touchmove', cancelMultiIfMove);
                                 svg.removeEventListener('touchend', cancelMultiIfMove);
                                 svg.removeEventListener('touchcancel', cancelMultiIfMove);
@@ -1981,50 +1991,28 @@
                     return;
                 }
 
-                // Two-finger: start hold timer (1s) to activate temporary two-finger pan (MMB-like)
+                // Two-finger immediate temporary pan (MMB-like): when two fingers are
+                // present we activate a separate temporary-pan state that lives only
+                // while both fingers remain down. This is distinct from persistent
+                // `panMode` and does not perform pinch-zoom.
                 if (touchCount === 2 && !isMobileMoveMode) {
-                    // compute initial centroid for potential pan start
                     const t0 = e.touches[0];
                     const t1 = e.touches[1];
                     const cx = (t0.clientX + t1.clientX) / 2;
                     const cy = (t0.clientY + t1.clientY) / 2;
-                    const startPositions = [{ x: t0.clientX, y: t0.clientY }, { x: t1.clientX, y: t1.clientY }];
-                    const moveThreshold = 10; // px
 
-                    twoFingerTimerId = setTimeout(() => {
-                        twoFingerHoldActive = true;
-                        // Initialize pan anchor so subsequent touchmove will pan (and not pinch)
-                        pinchStartCentroid = { x: cx, y: cy };
-                        twoFingerPanStart = { x: cx, y: cy, startPanX: view.panX, startPanY: view.panY };
-                        // visually indicate temporary pan (toggle UI button active while held)
-                        const panBtn = document.getElementById('panToggleBtn');
-                        if (panBtn) {
-                            panBtn.dataset._mmbPrevActive = panBtn.classList.contains('active') ? '1' : '0';
-                            panBtn.classList.add('active');
-                        }
-                    }, 1000);
-
-                    // Cancel the two-finger hold if user moves fingers significantly before timeout
-                    const cancelTwoIfMove = (ev) => {
-                        for (let i = 0; i < ev.touches.length; i++) {
-                            const cur = ev.touches[i];
-                            const start = startPositions[i] || startPositions[0];
-                            if (!start) continue;
-                            if (Math.hypot(cur.clientX - start.x, cur.clientY - start.y) > moveThreshold) {
-                                if (twoFingerTimerId) { clearTimeout(twoFingerTimerId); twoFingerTimerId = null; }
-                                svg.removeEventListener('touchmove', cancelTwoIfMove);
-                                svg.removeEventListener('touchend', cancelTwoIfMove);
-                                svg.removeEventListener('touchcancel', cancelTwoIfMove);
-                                break;
-                            }
-                        }
-                    };
-                    svg.addEventListener('touchmove', cancelTwoIfMove, { passive: false });
-                    svg.addEventListener('touchend', cancelTwoIfMove, { passive: false });
-                    svg.addEventListener('touchcancel', cancelTwoIfMove, { passive: false });
+                    twoFingerHoldActive = true; // temporary two-finger pan state
+                    // Initialize pan anchor so subsequent touchmove will pan (and not pinch)
+                    pinchStartCentroid = { x: cx, y: cy };
+                    twoFingerPanStart = { x: cx, y: cy, startPanX: view.panX, startPanY: view.panY };
+                    // visually indicate temporary pan on the pan button without toggling persistent panMode
+                    const panBtn = document.getElementById('panToggleBtn');
+                    if (panBtn) {
+                        panBtn.dataset._twoPrevActive = panBtn.classList.contains('active') ? '1' : '0';
+                        panBtn.classList.add('active');
+                    }
 
                     e.preventDefault();
-                    // do not immediately call handleTouchStart; wait for hold to activate or for move (to be cancelled above)
                     return;
                 }
 
@@ -2043,16 +2031,19 @@
                         const m = mv.touches[0];
                         if (Math.hypot(m.clientX - touchTapStartX, m.clientY - touchTapStartY) > 8) {
                             touchTapMoved = true;
-                            cancelTouchHold();
+                            cancelAllTouchVisuals();
                         }
                     };
                     // Attach tracker and remember reference so it can be removed on touchend/touchcancel
                     activeSingleTouchMoveHandler = singleTouchMoveTracker;
                     svg.addEventListener('touchmove', activeSingleTouchMoveHandler, { passive: false });
 
-                    startTouchHold(t.clientX, t.clientY, touchHoldDuration, () => {
+                    // Start a long-press timer (no overlay). Dispatch 'longpress' if it completes.
+                    if (longPressTimerId) { clearTimeout(longPressTimerId); longPressTimerId = null; }
+                    longPressTimerId = setTimeout(() => {
                         svg.dispatchEvent(new CustomEvent('longpress', { detail: { clientX: t.clientX, clientY: t.clientY } }));
-                    });
+                        longPressTimerId = null;
+                    }, touchHoldDuration);
 
                     if (isMobileMoveMode) {
                         legacy_handleTouchStart(e);
@@ -2065,17 +2056,48 @@
             // Ensure all touchend/touchcancel paths clear timers and cancel the hold overlay.
             const clearTouchHoldAndTimers = (ev) => {
                 // Clear two- and multi-finger timers
-                if (twoFingerTimerId) { clearTimeout(twoFingerTimerId); twoFingerTimerId = null; }
+                if (typeof twoFingerTimerId === 'number') { clearTimeout(twoFingerTimerId); twoFingerTimerId = null; } else { twoFingerTimerId = null; }
                 if (multiFingerTimerId) { clearTimeout(multiFingerTimerId); multiFingerTimerId = null; }
+                const wasTwoFinger = twoFingerHoldActive;
                 twoFingerHoldActive = false;
                 multiFingerHoldActive = false;
                 // Cancel visual overlay
-                cancelTouchHold();
+                cancelAllTouchVisuals();
+                // Clear any pending long-press timer
+                if (longPressTimerId) { clearTimeout(longPressTimerId); longPressTimerId = null; }
                 // Remove transient single-touch move listener if present
                 try {
                     if (activeSingleTouchMoveHandler) {
                         svg.removeEventListener('touchmove', activeSingleTouchMoveHandler);
                         activeSingleTouchMoveHandler = null;
+                    }
+                } catch (err) {
+                    // ignore
+                }
+                // Restore pan button state if we temporarily set it for two-finger or MMB
+                try {
+                    const panBtn = document.getElementById('panToggleBtn');
+                    if (panBtn) {
+                        if (typeof panBtn.dataset._twoPrevActive !== 'undefined') {
+                            const prev = panBtn.dataset._twoPrevActive === '1';
+                            panBtn.classList.toggle('active', panMode || prev);
+                            delete panBtn.dataset._twoPrevActive;
+                        }
+                        if (typeof panBtn.dataset._mmbPrevActive !== 'undefined') {
+                            const prev2 = panBtn.dataset._mmbPrevActive === '1';
+                            panBtn.classList.toggle('active', panMode || prev2);
+                            delete panBtn.dataset._mmbPrevActive;
+                        }
+                    }
+                } catch (err) {
+                    // ignore
+                }
+                // If a temporary two-finger pan just ended, persist the view and avoid immediate clamp
+                try {
+                    if (wasTwoFinger) {
+                        preservePanAfterDisable = true;
+                        skipClampNextUpdate = true;
+                        saveViewToConfig();
                     }
                 } catch (err) {
                     // ignore
@@ -2132,6 +2154,30 @@
 
             svg.addEventListener('touchcancel', (e) => {
                 clearTouchHoldAndTimers(e);
+            }, { passive: false });
+
+            // Global touchmove handler to support immediate two-finger temporary pan
+            svg.addEventListener('touchmove', (e) => {
+                if (twoFingerHoldActive && e.touches && e.touches.length >= 2) {
+                    const t0 = e.touches[0];
+                    const t1 = e.touches[1];
+                    const cx = (t0.clientX + t1.clientX) / 2;
+                    const cy = (t0.clientY + t1.clientY) / 2;
+                    if (twoFingerPanStart && pinchStartCentroid) {
+                        const deltaX = cx - pinchStartCentroid.x;
+                        const deltaY = cy - pinchStartCentroid.y;
+                        view.panX = twoFingerPanStart.startPanX + deltaX;
+                        view.panY = twoFingerPanStart.startPanY + deltaY;
+                        updateTransform();
+                    }
+                    e.preventDefault();
+                    return;
+                }
+                // If user reduced touches below 2 while this listener is active, ensure we clear temporary state
+                if (twoFingerHoldActive && (!e.touches || e.touches.length < 2)) {
+                    twoFingerHoldActive = false;
+                    cancelAllTouchVisuals();
+                }
             }, { passive: false });
 
             // Mouse down: handle middle-button temporary pan, otherwise route to handlers
@@ -2303,55 +2349,54 @@
             return GRID_HEADER_BASE + extraTop;
         }
 
-        // Touch-hold overlay control: start an animated circular progress at
-        // screen coordinates (clientX, clientY). onComplete will be called
-        // if the hold reaches full duration. Cancel by calling cancelTouchHold().
-        function startTouchHold(clientX, clientY, duration = 600, onComplete = null) {
-            const overlay = document.getElementById('touchHoldOverlay');
-            const progress = document.getElementById('touchHoldProgress');
-            if (!overlay || !progress) return;
-            touchHoldDuration = duration;
-            touchHoldStartX = clientX;
-            touchHoldStartY = clientY;
-            touchHoldOnComplete = onComplete;
-            overlay.style.left = `${clientX}px`;
-            overlay.style.top = `${clientY}px`;
-            overlay.style.display = 'block';
-            const r = parseFloat(progress.getAttribute('r')) || 30;
-            const circ = 2 * Math.PI * r;
-            progress.style.strokeDasharray = `${circ}`;
-            progress.style.strokeDashoffset = `${circ}`;
-            touchHoldStartTime = performance.now();
-            touchHoldActive = true;
+        // Move-button progress (used for three-finger hold). We render progress
+        // by filling the Move Mode toggle button with a conic-gradient.
+        let moveButtonProgressRaf = null;
+        let moveButtonProgressStart = 0;
+        let moveButtonProgressActive = false;
+        let moveButtonPrevBackground = null;
+        let moveButtonPrevColor = null;
+
+        function startMoveButtonProgress(btn, duration = 2000, color = 'var(--lcars-orange)', onComplete = null) {
+            if (!btn) return;
+            cancelMoveButtonProgress(btn);
+            moveButtonProgressActive = true;
+            moveButtonProgressStart = performance.now();
+            moveButtonPrevBackground = btn.style.background || '';
+            moveButtonPrevColor = btn.style.color || '';
 
             function frame(now) {
-                if (!touchHoldActive) return;
-                const elapsed = now - touchHoldStartTime;
-                const t = Math.min(1, elapsed / touchHoldDuration);
-                const offset = circ * (1 - t);
-                progress.style.strokeDashoffset = `${offset}`;
-                // subtle scale for feedback
-                overlay.style.transform = `translate(-50%, -50%) scale(${1 + 0.04 * t})`;
+                if (!moveButtonProgressActive) return;
+                const elapsed = now - moveButtonProgressStart;
+                const t = Math.min(1, elapsed / duration);
+                const deg = Math.round(360 * t);
+                // Fill using conic-gradient; fall back to solid color if unsupported
+                btn.style.background = `conic-gradient(${color} 0deg ${deg}deg, transparent ${deg}deg 360deg)`;
+                btn.style.color = '#000';
                 if (t >= 1) {
-                    // complete
-                    touchHoldActive = false;
-                    overlay.style.display = 'none';
-                    if (typeof touchHoldOnComplete === 'function') {
-                        try { touchHoldOnComplete(); } catch (err) { console.error(err); }
-                    }
+                    moveButtonProgressActive = false;
+                    if (typeof onComplete === 'function') onComplete();
                     return;
                 }
-                touchHoldRaf = requestAnimationFrame(frame);
+                moveButtonProgressRaf = requestAnimationFrame(frame);
             }
-            touchHoldRaf = requestAnimationFrame(frame);
+            moveButtonProgressRaf = requestAnimationFrame(frame);
         }
 
-        function cancelTouchHold() {
-            const overlay = document.getElementById('touchHoldOverlay');
-            if (touchHoldRaf) { cancelAnimationFrame(touchHoldRaf); touchHoldRaf = null; }
-            touchHoldActive = false;
-            touchHoldOnComplete = null;
-            if (overlay) overlay.style.display = 'none';
+        function cancelMoveButtonProgress(btn) {
+            if (moveButtonProgressRaf) { cancelAnimationFrame(moveButtonProgressRaf); moveButtonProgressRaf = null; }
+            moveButtonProgressActive = false;
+            if (btn) {
+                btn.style.background = moveButtonPrevBackground || '';
+                btn.style.color = moveButtonPrevColor || '';
+            }
+            moveButtonPrevBackground = null;
+            moveButtonPrevColor = null;
+        }
+
+        function cancelAllTouchVisuals() {
+            const moveBtn = document.getElementById('moveModeToggle');
+            cancelMoveButtonProgress(moveBtn);
         }
 
         function applyColorPalette() {
@@ -3903,18 +3948,7 @@
                 }
 
                 // Handle pinch zoom (scale) anchored at centroid
-                if (pinchStartDistance > 0) {
-                    const scale = dist / pinchStartDistance;
-                    const container = document.querySelector('.canvas-container');
-                    if (container) {
-                        const rect = container.getBoundingClientRect();
-                        const anchorX = cx - rect.left;
-                        const anchorY = cy - rect.top;
-                        setZoom(pinchStartZoom * scale, anchorX, anchorY, true);
-                    } else {
-                        setZoom(pinchStartZoom * scale, null, null, true);
-                    }
-                }
+                // Pinch-to-zoom disabled by user preference; two-finger gestures only pan.
                 return;
             }
 
@@ -3967,20 +4001,7 @@
                     updateTransform();
                 }
 
-                // Handle pinch zoom (scale) as well
-                if (pinchStartDistance > 0) {
-                    const scale = dist / pinchStartDistance;
-                    // Anchor zoom at the centroid relative to the container
-                    const container = document.querySelector('.canvas-container');
-                    if (container) {
-                        const rect = container.getBoundingClientRect();
-                        const anchorX = cx - rect.left;
-                        const anchorY = cy - rect.top;
-                        setZoom(pinchStartZoom * scale, anchorX, anchorY, true);
-                    } else {
-                        setZoom(pinchStartZoom * scale, null, null, true);
-                    }
-                }
+                // Pinch-to-zoom disabled by user preference; two-finger gestures only pan.
 
                 return;
             }
