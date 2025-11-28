@@ -768,6 +768,7 @@
                      display: flex;
                      justify-content: center;
                      align-items: center;
+                     touch-action: none !important;
                 }
                 /* Do not constrain the SVG with viewport-based max sizes. The SVG's
                     intrinsic size (attributes/JS) is authoritative for exports and
@@ -778,7 +779,7 @@
                      height: auto !important;
                      max-width: none !important;
                      max-height: none !important;
-                     touch-action: none; /* allow JS to manage touch when needed */
+                     touch-action: manipulation !important;
                      position: relative;
                      z-index: 0;
                  }
@@ -3559,10 +3560,6 @@
                 // Disable default touch actions while moving items
                 const svgElm = document.getElementById('mdsCanvas');
                 if (svgElm) svgElm.style.touchAction = 'none';
-                // Always register legacy touch handlers for move mode
-                svgElm.addEventListener('touchstart', legacy_handleTouchStart, { passive: false });
-                svgElm.addEventListener('touchmove', legacy_handleTouchMove, { passive: false });
-                svgElm.addEventListener('touchend', legacy_handleTouchEnd, { passive: false });
                 // Auto-select first item when entering move mode
                 if (mobileSelectionMode === 'rooms') {
                     const rooms = getCurrentDeck().rooms;
@@ -3582,12 +3579,7 @@
                 toggleBtn.textContent = '🔒 Move Mode';
                 // Restore default touch behavior on the SVG when leaving move mode
                 const svgElm = document.getElementById('mdsCanvas');
-                if (svgElm) {
-                    svgElm.style.touchAction = 'auto';
-                    svgElm.removeEventListener('touchstart', legacy_handleTouchStart);
-                    svgElm.removeEventListener('touchmove', legacy_handleTouchMove);
-                    svgElm.removeEventListener('touchend', legacy_handleTouchEnd);
-                }
+                if (svgElm) svgElm.style.touchAction = 'auto';
                 selectedRoomIndex = -1;
                 selectedOutlineIndex = -1;
             }
