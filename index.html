@@ -17,13 +17,7 @@
             color: #fff;
             display: flex;
             height: 100vh;
-            overflow: hidden !important;
-            overscroll-behavior: contain !important;
-                html {
-                    overflow: hidden !important;
-                    height: 100vh !important;
-                    overscroll-behavior: contain !important;
-                }
+            overflow: hidden;
         }
 
         /* LCARS Color Palette */
@@ -769,7 +763,7 @@
                      height: calc(100vh - 84px - 56px); /* 84px for status bar, 56px for toolbar */
                      min-height: 220px;
                      max-height: none !important;
-                     overflow: visible !important;
+                     overflow: hidden !important;
                      padding: 0 10px 84px 10px !important; /* bottom padding for status bar */
                      display: flex;
                      justify-content: center;
@@ -2190,12 +2184,6 @@
                     twoFingerHoldActive = false;
                     cancelAllTouchVisuals();
                 }
-                // In mobile move mode, single-finger drag should always work
-                if (isMobileMoveMode && e.touches && e.touches.length === 1) {
-                    legacy_handleTouchMove(e);
-                    e.preventDefault();
-                    return;
-                }
             }, { passive: false });
 
             // Mouse down: handle middle-button temporary pan, otherwise route to handlers
@@ -3571,6 +3559,10 @@
                 // Disable default touch actions while moving items
                 const svgElm = document.getElementById('mdsCanvas');
                 if (svgElm) svgElm.style.touchAction = 'none';
+                // Always register legacy touch handlers for move mode
+                svgElm.addEventListener('touchstart', legacy_handleTouchStart, { passive: false });
+                svgElm.addEventListener('touchmove', legacy_handleTouchMove, { passive: false });
+                svgElm.addEventListener('touchend', legacy_handleTouchEnd, { passive: false });
                 // Auto-select first item when entering move mode
                 if (mobileSelectionMode === 'rooms') {
                     const rooms = getCurrentDeck().rooms;
@@ -3590,7 +3582,12 @@
                 toggleBtn.textContent = '🔒 Move Mode';
                 // Restore default touch behavior on the SVG when leaving move mode
                 const svgElm = document.getElementById('mdsCanvas');
-                if (svgElm) svgElm.style.touchAction = 'auto';
+                if (svgElm) {
+                    svgElm.style.touchAction = 'auto';
+                    svgElm.removeEventListener('touchstart', legacy_handleTouchStart);
+                    svgElm.removeEventListener('touchmove', legacy_handleTouchMove);
+                    svgElm.removeEventListener('touchend', legacy_handleTouchEnd);
+                }
                 selectedRoomIndex = -1;
                 selectedOutlineIndex = -1;
             }
