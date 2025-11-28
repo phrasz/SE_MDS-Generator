@@ -1506,6 +1506,13 @@
         let touchHoldDuration = 600; // ms
         let touchHoldStartTime = 0;
         let touchHoldOnComplete = null;
+        // Single-touch tap tracking (for Move Mode tap-to-place)
+        let touchTapStartTime = 0;
+        let touchTapStartX = 0;
+        let touchTapStartY = 0;
+        let touchTapMoved = false;
+        // Active transient single-touch move handler so we can remove it on release
+        let activeSingleTouchMoveHandler = null;
         // Two-/multi-finger hold timers
         let twoFingerTimerId = null;
         let multiFingerTimerId = null;
@@ -2024,6 +2031,25 @@
                 // Single-touch: show single-finger long-press indicator and route to legacy or pan handlers
                 if (touchCount === 1) {
                     const t = e.touches[0];
+                    // Track tap start for Move Mode tap-to-place
+                    touchTapStartTime = performance.now();
+                    touchTapStartX = t.clientX;
+                    touchTapStartY = t.clientY;
+                    touchTapMoved = false;
+
+                    // Add a transient move listener to detect small movement (cancel tap)
+                    const singleTouchMoveTracker = (mv) => {
+                        if (!mv.touches || mv.touches.length === 0) return;
+                        const m = mv.touches[0];
+                        if (Math.hypot(m.clientX - touchTapStartX, m.clientY - touchTapStartY) > 8) {
+                            touchTapMoved = true;
+                            cancelTouchHold();
+                        }
+                    };
+                    // Attach tracker and remember reference so it can be removed on touchend/touchcancel
+                    activeSingleTouchMoveHandler = singleTouchMoveTracker;
+                    svg.addEventListener('touchmove', activeSingleTouchMoveHandler, { passive: false });
+
                     startTouchHold(t.clientX, t.clientY, touchHoldDuration, () => {
                         svg.dispatchEvent(new CustomEvent('longpress', { detail: { clientX: t.clientX, clientY: t.clientY } }));
                     });
@@ -2034,6 +2060,78 @@
                         handleTouchStart(e);
                     }
                 }
+            }, { passive: false });
+
+            // Ensure all touchend/touchcancel paths clear timers and cancel the hold overlay.
+            const clearTouchHoldAndTimers = (ev) => {
+                // Clear two- and multi-finger timers
+                if (twoFingerTimerId) { clearTimeout(twoFingerTimerId); twoFingerTimerId = null; }
+                if (multiFingerTimerId) { clearTimeout(multiFingerTimerId); multiFingerTimerId = null; }
+                twoFingerHoldActive = false;
+                multiFingerHoldActive = false;
+                // Cancel visual overlay
+                cancelTouchHold();
+                // Remove transient single-touch move listener if present
+                try {
+                    if (activeSingleTouchMoveHandler) {
+                        svg.removeEventListener('touchmove', activeSingleTouchMoveHandler);
+                        activeSingleTouchMoveHandler = null;
+                    }
+                } catch (err) {
+                    // ignore
+                }
+                // Remove any transient single-touch move trackers
+                // (We cannot remove by reference here; remove all listeners using a short-lived approach)
+                // A safe approach: clone the svg and reattach persistent listeners is heavy-handed; instead rely on singleTouchMoveTracker removing itself when not needed.
+            };
+
+            svg.addEventListener('touchend', (e) => {
+                // If this was a short tap while Move Mode is active and there was minimal movement,
+                // treat it as a tap-to-place and move the selected room/outline to the tapped grid cell.
+                try {
+                    if (isMobileMoveMode && e.changedTouches && e.changedTouches.length === 1) {
+                        const duration = performance.now() - touchTapStartTime;
+                        const moved = touchTapMoved;
+                        const t = e.changedTouches[0];
+                        if (!moved && duration < 400) {
+                            // Compute SVG-local coordinates taking pan/zoom into account
+                            const svgEl = document.getElementById('mdsCanvas');
+                            const rect = svgEl.getBoundingClientRect();
+                            const clientX = t.clientX;
+                            const clientY = t.clientY;
+                            const svgX = (clientX - rect.left - view.panX) / view.zoom;
+                            const svgY = (clientY - rect.top - view.panY) / view.zoom;
+                            const cellSize = config.grid_cell_size;
+                            const xBase = config.padding;
+                            const yBase = computeContentYBase();
+                            const gx = Math.floor((svgX - xBase) / cellSize);
+                            const gy = Math.floor((svgY - yBase) / cellSize);
+                            const deck = getCurrentDeck();
+                            // Clamp into deck bounds
+                            const clampedX = Math.max(-50, Math.min(deck.grid_width - 1, gx));
+                            const clampedY = Math.max(-50, Math.min(deck.grid_height - 1, gy));
+
+                            if (selectedRoomIndex !== -1 && deck.rooms[selectedRoomIndex]) {
+                                const room = deck.rooms[selectedRoomIndex];
+                                room.position = [clampedX, clampedY];
+                                saveToLocalStorage();
+                                render();
+                            } else if (selectedOutlineIndex !== -1 && config.manual_outlines && config.manual_outlines[selectedOutlineIndex]) {
+                                const outline = config.manual_outlines[selectedOutlineIndex];
+                                outline.position = [clampedX, clampedY];
+                                saveToLocalStorage();
+                                render();
+                            }
+                        }
+                    }
+                } catch (err) {
+                    console.error('tap-to-place error', err);
+                }
+                clearTouchHoldAndTimers(e);
+            }, { passive: false });
+
+            svg.addEventListener('touchcancel', (e) => {
+                clearTouchHoldAndTimers(e);
             }, { passive: false });
 
             // Mouse down: handle middle-button temporary pan, otherwise route to handlers
