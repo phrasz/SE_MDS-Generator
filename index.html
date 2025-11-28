@@ -331,7 +331,7 @@
 
             .canvas-container {
                 flex: 1;
-                overflow: hidden;
+                overflow: visible;
                 /* Remove vertical padding so the SVG border sits at the outermost pixels
                     (no extra top/bottom whitespace). Keep horizontal padding for layout. */
                 padding: 0 20px;
@@ -755,10 +755,10 @@
                 /* Ensure the canvas container does not create page scrollbars on mobile
                     and keeps the SVG border as the true outer edge. Hide overflow so
                     panning is handled inside the canvas and the page itself remains static. */
-                .canvas-container {
-                     height: calc(100vh - 140px);
+                 .canvas-container {
+                     max-height: calc(100vh - 140px);
                      min-height: 220px;
-                     overflow: hidden !important;
+                     overflow: visible !important;
                      padding: 0 10px !important;
                      display: flex;
                      justify-content: center;
@@ -1952,7 +1952,7 @@
                     const moveThreshold = 12; // px
                     // Start the visual progress on the Move Mode toggle instead of using a raw timer
                     const moveBtn = document.getElementById('moveModeToggle');
-                    startMoveButtonProgress(moveBtn, 2000, 'var(--lcars-orange)', () => {
+                    startMoveButtonProgress(moveBtn, 1000, 'var(--lcars-orange)', () => {
                         multiFingerHoldActive = true;
                         // toggle Move Mode (T flip-flop)
                         toggleMobileMoveMode();
@@ -2357,7 +2357,7 @@
         let moveButtonPrevBackground = null;
         let moveButtonPrevColor = null;
 
-        function startMoveButtonProgress(btn, duration = 2000, color = 'var(--lcars-orange)', onComplete = null) {
+        function startMoveButtonProgress(btn, duration = 1000, color = 'var(--lcars-orange)', onComplete = null) {
             if (!btn) return;
             cancelMoveButtonProgress(btn);
             moveButtonProgressActive = true;
