@@ -226,7 +226,7 @@
         .btn-secondary {
             background: var(--lcars-blue);
         }
-
+                overflow: hidden;
         .btn-secondary:hover {
             background: var(--lcars-skyblue);
         }
@@ -249,7 +249,7 @@
             /* Visually float the controls to the bottom-right of the viewport
                while keeping a placeholder in the status bar so the center
                title can remain perfectly centered between left and right. */
-            position: fixed;
+            z-index: 10050;
             right: 12px;
             bottom: 8px;
             display: inline-flex;
@@ -313,9 +313,9 @@
         .help-tab-btn:hover { background: #e8d6f0; }
         .help-tab-btn:hover .help-label { opacity:1; width:44px; margin-left:6px; }
 
-          .canvas-container {
+            .canvas-container {
                 flex: 1;
-                overflow: auto;
+                overflow: hidden;
                 /* Remove vertical padding so the SVG border sits at the outermost pixels
                     (no extra top/bottom whitespace). Keep horizontal padding for layout. */
                 padding: 0 20px;
@@ -734,26 +734,29 @@
                 min-width: 36px !important;
                 height: 34px !important;
             }
-            /* Ensure canvas container retains usable height on small screens
-               so toolbar/status bar don't shrink the SVG viewport. */
-            .canvas-container {
-                height: calc(100vh - 140px);
-                min-height: 220px;
-                /* Allow transformed SVG content to be visible when panned on small screens
-                   instead of being clipped by the container's scroll area. Remove vertical
-                   padding so the SVG border remains the true outer edge. */
-                overflow: visible !important;
-                padding: 0 10px !important;
-            }
-            /* Make the SVG responsive inside the canvas container while
-               respecting the container's max height on mobile. Use a safe max-width
-               so panning/transform does not move the rendered portion entirely out of view. */
-            #mdsCanvas {
-                width: auto !important;
-                height: auto !important;
-                max-width: calc(100vw - 32px) !important;
-                max-height: calc(100vh - 140px) !important;
-            }
+                /* Ensure the canvas container does not create page scrollbars on mobile
+                    and keeps the SVG border as the true outer edge. Hide overflow so
+                    panning is handled inside the canvas and the page itself remains static. */
+                .canvas-container {
+                     height: calc(100vh - 140px);
+                     min-height: 220px;
+                     overflow: hidden !important;
+                     padding: 0 10px !important;
+                     display: flex;
+                     justify-content: center;
+                     align-items: center;
+                }
+                /* Do not constrain the SVG with viewport-based max sizes. The SVG's
+                    intrinsic size (attributes/JS) is authoritative for exports and
+                    rendering; preventing CSS max-width/max-height avoids accidental
+                    scaling that moves borders or changes pixel dimensions. */
+                #mdsCanvas {
+                     width: auto !important;
+                     height: auto !important;
+                     max-width: none !important;
+                     max-height: none !important;
+                     touch-action: none; /* allow JS to manage touch when needed */
+                }
         }
     </style>
 </head>
@@ -1889,11 +1892,23 @@
             svg.addEventListener('mouseup',   (e) => { if (e.button === 1) return; if (panMode) handleMouseUp(e);   else legacy_handleMouseUp(e); });
             svg.addEventListener('mouseleave',(e) => { if (e.button === 1) return; if (panMode) handleMouseUp(e);   else legacy_handleMouseUp(e); });
             
-            // Touch: route to appropriate handler depending on pan mode / mobile move mode
-            svg.addEventListener('touchstart', (e) => { if (panMode) return handleTouchStart(e); else return legacy_handleTouchStart(e); }, { passive: false });
-            svg.addEventListener('touchmove',  (e) => { if (panMode) return handleTouchMove(e);  else return legacy_handleTouchMove(e); }, { passive: false });
-            svg.addEventListener('touchend',   (e) => { if (panMode) return handleTouchEnd(e);   else return legacy_handleTouchEnd(e); });
-            svg.addEventListener('touchcancel',(e) => { if (panMode) return handleTouchEnd(e);   else return legacy_handleTouchEnd(e); });
+            // Touch: prioritize mobile Move Mode, otherwise route to appropriate handler
+            svg.addEventListener('touchstart', (e) => {
+                if (isMobileMoveMode) return legacy_handleTouchStart(e);
+                if (panMode) return handleTouchStart(e); else return legacy_handleTouchStart(e);
+            }, { passive: false });
+            svg.addEventListener('touchmove',  (e) => {
+                if (isMobileMoveMode) return legacy_handleTouchMove(e);
+                if (panMode) return handleTouchMove(e);  else return legacy_handleTouchMove(e);
+            }, { passive: false });
+            svg.addEventListener('touchend',   (e) => {
+                if (isMobileMoveMode) return legacy_handleTouchEnd(e);
+                if (panMode) return handleTouchEnd(e);   else return legacy_handleTouchEnd(e);
+            });
+            svg.addEventListener('touchcancel',(e) => {
+                if (isMobileMoveMode) return legacy_handleTouchEnd(e);
+                if (panMode) return handleTouchEnd(e);   else return legacy_handleTouchEnd(e);
+            });
 
             // Canvas control buttons
             const zoomInBtn = document.getElementById('zoomInBtn');
