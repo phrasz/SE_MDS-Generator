@@ -244,18 +244,16 @@
             background: #000;
         }
 
-        /* Canvas controls (zoom, pan toggle) — inline inside status bar row */
+        /* Canvas controls (zoom, pan toggle) — inline inside status bar row
+           but visually floated above the canvas so they never overlap text. */
         .canvas-controls {
-            /* Visually float the controls to the bottom-right of the viewport
-               while keeping a placeholder in the status bar so the center
-               title can remain perfectly centered between left and right. */
-            z-index: 10050;
+            position: fixed;
             right: 12px;
             bottom: 8px;
             display: inline-flex;
             gap: 8px;
             align-items: center;
-            z-index: 10003;
+            z-index: 10050;
             pointer-events: auto;
             margin-left: 0;
         }
@@ -441,6 +439,8 @@
             font-size: 12px;
             color: #888;
             position: relative;
+            /* Reserve room on the right so floated controls never overlap status text */
+            padding-right: 140px;
         }
 
         /* Left area (Deck / Rooms) stays left-aligned */
@@ -773,6 +773,16 @@
                     right: 0 !important;
                     bottom: 0 !important;
                     z-index: 10005 !important;
+                    /* Make room on the right for the floating canvas controls */
+                    padding-right: 140px !important;
+                    /* Match left/right padding symmetry desired by user */
+                    padding-left: 20px !important;
+                }
+                /* Increase spacing between status fields so text doesn't touch controls */
+                .status-info {
+                    gap: 20px !important;
+                    display: flex !important;
+                    align-items: center !important;
                 }
                 /* Keep canvas-controls above the status bar and visible while panning */
                 .canvas-controls {
@@ -3211,6 +3221,15 @@
                 renderRoomList();
                 renderOutlineList();
                 render();
+                // Ensure toolbar/status/controls are visible when entering move mode
+                const toolbar = document.querySelector('.toolbar');
+                const status = document.querySelector('.status-bar');
+                const canvasControls = document.getElementById('canvasControls');
+                const menuToggle = document.getElementById('menuToggle');
+                if (toolbar) toolbar.style.display = 'flex';
+                if (status) status.style.display = 'flex';
+                if (canvasControls) canvasControls.style.display = 'inline-flex';
+                if (menuToggle) menuToggle.style.display = 'flex';
             } else {
                 buttons.classList.remove('active');
                 toggleBtn.classList.remove('active');
@@ -3223,6 +3242,15 @@
                 renderRoomList();
                 renderOutlineList();
                 render();
+                // Restore displays explicitly when leaving move mode (defensive)
+                const toolbar = document.querySelector('.toolbar');
+                const status = document.querySelector('.status-bar');
+                const canvasControls = document.getElementById('canvasControls');
+                const menuToggle = document.getElementById('menuToggle');
+                if (toolbar) toolbar.style.display = 'flex';
+                if (status) status.style.display = 'flex';
+                if (canvasControls) canvasControls.style.display = 'inline-flex';
+                if (menuToggle) menuToggle.style.display = 'flex';
             }
         }
         
