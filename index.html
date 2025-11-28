@@ -17,7 +17,13 @@
             color: #fff;
             display: flex;
             height: 100vh;
-            overflow: hidden;
+            overflow: hidden !important;
+            overscroll-behavior: contain !important;
+                html {
+                    overflow: hidden !important;
+                    height: 100vh !important;
+                    overscroll-behavior: contain !important;
+                }
         }
 
         /* LCARS Color Palette */
@@ -2183,6 +2189,12 @@
                 if (twoFingerHoldActive && (!e.touches || e.touches.length < 2)) {
                     twoFingerHoldActive = false;
                     cancelAllTouchVisuals();
+                }
+                // In mobile move mode, single-finger drag should always work
+                if (isMobileMoveMode && e.touches && e.touches.length === 1) {
+                    legacy_handleTouchMove(e);
+                    e.preventDefault();
+                    return;
                 }
             }, { passive: false });
 
