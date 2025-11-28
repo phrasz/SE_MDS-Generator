@@ -70,6 +70,13 @@
             font-weight: bold;
         }
 
+        /* Ensure top/bottom UI and canvas controls remain visible above canvas
+           and other layout changes on all screen sizes. This raises z-index so
+           the toolbar/status/controls don't get visually hidden by transforms. */
+        .toolbar, .status-bar, .canvas-controls, .menu-toggle {
+            z-index: 11000 !important;
+        }
+
         .menu-toggle:hover {
             background: var(--lcars-yellow);
         }
@@ -226,7 +233,6 @@
         .btn-secondary {
             background: var(--lcars-blue);
         }
-                overflow: hidden;
         .btn-secondary:hover {
             background: var(--lcars-skyblue);
         }
@@ -1472,6 +1478,8 @@
         let isPinching = false;
         let pinchStartDistance = 0;
         let pinchStartZoom = 1;
+        let pinchStartCentroid = null;
+        let twoFingerPanStart = null;
         // Track whether mouse is hovering the canvas for wheel-hover zoom
         let isHoveringCanvas = false;
         // Track if user has manually panned/changed view; this prevents auto-centering on unrelated clicks
@@ -1659,6 +1667,10 @@
         function init() {
             // Load from localStorage first
             loadFromLocalStorage();
+            // Ensure pan and mobile move are disabled on fresh load/refresh
+            panMode = false;
+            isMobileMoveMode = false;
+            if (config) config.panMode = false;
             
             setupEventListeners();
             syncUIFromConfig();
@@ -1677,14 +1689,21 @@
             } else {
                 setTimeout(() => { render(); }, 50);
             }
-            // Reflect pan mode UI if set in config
-            if (config.panMode) { panMode = !!config.panMode; }
+            // Reflect pan/move UI state (start disabled by default)
             const panBtn = document.getElementById('panToggleBtn');
-            if (panBtn) panBtn.classList.toggle('active', panMode);
-            const moveBtn = document.getElementById('moveModeBtn');
-            if (moveBtn) moveBtn.classList.toggle('active', !panMode);
+            if (panBtn) panBtn.classList.toggle('active', false);
+            const moveToggleBtn = document.getElementById('moveModeToggle');
+            if (moveToggleBtn) {
+                moveToggleBtn.classList.remove('active');
+                moveToggleBtn.textContent = '🔒 Move Mode';
+            }
+            const mobileButtons = document.getElementById('mobileMoveButtons');
+            if (mobileButtons) mobileButtons.classList.remove('active');
             const svg = document.getElementById('mdsCanvas');
-            if (svg) svg.style.cursor = panMode ? 'grab' : 'default';
+            if (svg) {
+                svg.style.cursor = 'default';
+                svg.style.touchAction = 'auto';
+            }
         }
 
         // LocalStorage functions
@@ -3557,11 +3576,19 @@
             event.preventDefault();
             // Handle pinch (two-finger) start
             if (event.touches && event.touches.length === 2) {
+                // Two-finger gesture: handle both pinch (zoom) and centroid pan.
                 isPinching = true;
-                const dx = event.touches[0].clientX - event.touches[1].clientX;
-                const dy = event.touches[0].clientY - event.touches[1].clientY;
+                const t0 = event.touches[0];
+                const t1 = event.touches[1];
+                const dx = t0.clientX - t1.clientX;
+                const dy = t0.clientY - t1.clientY;
                 pinchStartDistance = Math.sqrt(dx * dx + dy * dy);
                 pinchStartZoom = view.zoom;
+                // Track centroid for two-finger panning
+                const cx = (t0.clientX + t1.clientX) / 2;
+                const cy = (t0.clientY + t1.clientY) / 2;
+                pinchStartCentroid = { x: cx, y: cy };
+                twoFingerPanStart = { x: cx, y: cy, startPanX: view.panX, startPanY: view.panY };
                 return;
             }
 
@@ -3589,20 +3616,44 @@
 
         function handleTouchMove(event) {
             event.preventDefault();
-            // Pinch-to-zoom handling
-            if (isPinching && event.touches && event.touches.length === 2) {
-                const dx = event.touches[0].clientX - event.touches[1].clientX;
-                const dy = event.touches[0].clientY - event.touches[1].clientY;
+            // Two-finger gesture: centroid pan + pinch zoom
+            if (event.touches && event.touches.length === 2) {
+                const t0 = event.touches[0];
+                const t1 = event.touches[1];
+                const dx = t0.clientX - t1.clientX;
+                const dy = t0.clientY - t1.clientY;
                 const dist = Math.sqrt(dx * dx + dy * dy);
+
+                // Compute centroid and apply two-finger pan based on centroid delta
+                const cx = (t0.clientX + t1.clientX) / 2;
+                const cy = (t0.clientY + t1.clientY) / 2;
+                if (twoFingerPanStart && pinchStartCentroid) {
+                    const deltaX = cx - pinchStartCentroid.x;
+                    const deltaY = cy - pinchStartCentroid.y;
+                    view.panX = twoFingerPanStart.startPanX + deltaX;
+                    view.panY = twoFingerPanStart.startPanY + deltaY;
+                    // Update transform while gesturing
+                    updateTransform();
+                }
+
+                // Handle pinch zoom (scale) anchored at centroid
                 if (pinchStartDistance > 0) {
                     const scale = dist / pinchStartDistance;
-                    setZoom(pinchStartZoom * scale, null, null, true);
+                    const container = document.querySelector('.canvas-container');
+                    if (container) {
+                        const rect = container.getBoundingClientRect();
+                        const anchorX = cx - rect.left;
+                        const anchorY = cy - rect.top;
+                        setZoom(pinchStartZoom * scale, anchorX, anchorY, true);
+                    } else {
+                        setZoom(pinchStartZoom * scale, null, null, true);
+                    }
                 }
                 return;
             }
 
-            // Panning
-            if (isPanning) {
+            // Single-finger panning when in panning state
+            if (isPanning && event.touches && event.touches.length >= 1) {
                 const dx = event.touches[0].clientX - panStart.x;
                 const dy = event.touches[0].clientY - panStart.y;
                 view.panX = panStart.startPanX + dx;
@@ -3611,30 +3662,62 @@
                 return;
             }
 
-            // Only allow dragging in mobile move mode for typical item move
-            if (!isMobileMoveMode) {
-                return;
-            }
+            // Touch drag for mobile move mode: translate to mousemove
+            if (!isMobileMoveMode) return;
             const touch = event.touches[0];
-            const mouseEvent = new MouseEvent('mousemove', {
-                clientX: touch.clientX,
-                clientY: touch.clientY
-            });
+            const mouseEvent = new MouseEvent('mousemove', { clientX: touch.clientX, clientY: touch.clientY });
             handleMouseMove(mouseEvent);
         }
 
         function handleTouchEnd(event) {
             event.preventDefault();
-            // End pinch state
-            if (isPinching) {
+            // If we were tracking a pinch/two-finger pan but now have fewer than
+            // two touches, clear pinch state and persist the view.
+            if (isPinching && (!event.touches || event.touches.length < 2)) {
                 isPinching = false;
                 pinchStartDistance = 0;
                 pinchStartZoom = view.zoom;
+                pinchStartCentroid = null;
+                twoFingerPanStart = null;
                 saveViewToConfig();
+                // continue to allow other end-of-touch behavior below
+            }
+            if (event.touches && event.touches.length === 2) {
+                const t0 = event.touches[0];
+                const t1 = event.touches[1];
+                const dx = t0.clientX - t1.clientX;
+                const dy = t0.clientY - t1.clientY;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+
+                // Compute centroid and apply two-finger pan based on centroid delta
+                const cx = (t0.clientX + t1.clientX) / 2;
+                const cy = (t0.clientY + t1.clientY) / 2;
+                if (twoFingerPanStart && pinchStartCentroid) {
+                    const deltaX = cx - pinchStartCentroid.x;
+                    const deltaY = cy - pinchStartCentroid.y;
+                    view.panX = twoFingerPanStart.startPanX + deltaX;
+                    view.panY = twoFingerPanStart.startPanY + deltaY;
+                    // Update transform without clamping while user is gesturing
+                    updateTransform();
+                }
+
+                // Handle pinch zoom (scale) as well
+                if (pinchStartDistance > 0) {
+                    const scale = dist / pinchStartDistance;
+                    // Anchor zoom at the centroid relative to the container
+                    const container = document.querySelector('.canvas-container');
+                    if (container) {
+                        const rect = container.getBoundingClientRect();
+                        const anchorX = cx - rect.left;
+                        const anchorY = cy - rect.top;
+                        setZoom(pinchStartZoom * scale, anchorX, anchorY, true);
+                    } else {
+                        setZoom(pinchStartZoom * scale, null, null, true);
+                    }
+                }
+
                 return;
             }
-
-            // End panning state
             if (isPanning) {
                 isPanning = false;
                 saveViewToConfig();
