@@ -244,15 +244,20 @@
             background: #000;
         }
 
-        /* Canvas overlay controls (zoom, pan toggle) */
+        /* Canvas controls (zoom, pan toggle) — inline inside status bar row */
         .canvas-controls {
-            position: fixed; /* fixed to viewport so it stays visible */
-            bottom: 24px;
-            right: 24px;
-            display: flex;
+            /* Visually float the controls to the bottom-right of the viewport
+               while keeping a placeholder in the status bar so the center
+               title can remain perfectly centered between left and right. */
+            position: fixed;
+            right: 12px;
+            bottom: 8px;
+            display: inline-flex;
             gap: 8px;
-            z-index: 9999; /* above everything else */
+            align-items: center;
+            z-index: 10003;
             pointer-events: auto;
+            margin-left: 0;
         }
 
         .canvas-control-btn {
@@ -320,6 +325,23 @@
         #mdsCanvas {
             border: 2px solid var(--lcars-blue);
             background: #000;
+        }
+
+        /* Prevent the SVG canvas from becoming excessively wide on desktop
+           in the same way we restrict height on small screens. The sidebar
+           occupies ~20% with a min-width — reserve horizontal space so the
+           canvas doesn't overflow and the border remains visually reasonable
+           when zooming. This mirrors the mobile "max-height" rule but
+           applied horizontally for larger viewports. */
+        .canvas-container {
+            max-width: calc(100vw - 260px);
+            box-sizing: border-box;
+        }
+
+        #mdsCanvas {
+            max-width: calc(100vw - 260px);
+            width: auto;
+            height: auto;
         }
 
         /* Room List */
@@ -419,16 +441,20 @@
             padding: 10px 20px;
             border-top: 2px solid var(--lcars-blue);
             display: flex;
-            justify-content: space-between;
             align-items: center;
             font-size: 12px;
             color: #888;
+            position: relative;
         }
 
+        /* Left area (Deck / Rooms) stays left-aligned */
         .status-info {
             display: flex;
             gap: 20px;
+            flex: 0 0 auto;
         }
+
+        /* Title removed - no centered app title in status bar. */
 
         /* Scrollbar Styling */
         ::-webkit-scrollbar {
@@ -648,8 +674,24 @@
             display: none;
         }
         
+        /* Hidden by default; shown when Move Mode toggles the `active` class. */
         .mobile-move-buttons {
             display: none !important;
+        }
+        /* Stronger selector to override toolbar-row rules and ensure the
+           move-mode controls do NOT render unless `.active` is set. */
+        .toolbar-row-2.mobile-move-buttons {
+            display: none !important;
+        }
+        /* On small screens, allow them to appear when active. Use !important to
+           override the generic .toolbar-row-2 rule that sets display:flex. */
+        @media (max-width: 768px) {
+            .mobile-move-buttons.active,
+            .toolbar-row-2.mobile-move-buttons.active {
+                display: flex !important;
+                gap: 6px;
+                align-items: center;
+            }
         }
         
         @media (max-width: 768px) {
@@ -665,18 +707,17 @@
                 background: var(--lcars-orange);
                 color: #000;
             }
-            /* Keep canvas-controls floating above the canvas on small screens so
-               they do not consume layout space or shrink the SVG viewport. */
+            /* Keep canvas-controls floating above the canvas on small screens as well
+               (fixed to the bottom-right like the Help button). */
             .canvas-controls {
                 position: fixed !important;
-                bottom: 80px !important; /* sit above the status bar */
-                right: 12px !important;
-                margin-left: 0;
-                display: flex;
-                gap: 8px;
-                align-items: center;
+                right: 8px !important;
+                bottom: 8px !important;
+                display: inline-flex !important;
+                gap: 6px !important;
+                align-items: center !important;
                 pointer-events: auto;
-                z-index: 10002;
+                z-index: 10004 !important;
             }
             /* Reduce top toolbar fonts and keep toolbar rows on a single line */
             .toolbar {
@@ -1133,7 +1174,7 @@
                     <span class="help-icon">&nbsp;&nbsp;❓</span><span class="help-label">Help</span>
                 </button>
             </div>
-            <!-- Mobile move-mode controls: cycle/select when Move Mode is active (mobile-only) -->
+                <!-- Mobile move-mode controls: cycle/select when Move Mode is active -->
             <div class="toolbar-row-2 mobile-move-buttons" id="mobileMoveButtons">
                 <button class="btn btn-secondary" id="mobileToggleMode" onclick="toggleMobileMode()">📦 Rooms</button>
                 <button class="btn btn-secondary" onclick="cycleMobilePrev()">◀</button>
@@ -1148,18 +1189,16 @@
             <div class="status-info">
                 <span id="statusDeck">Deck: 1</span>
                 <span id="statusRooms">Rooms: 0</span>
-                <!-- Coverage display removed per user request -->
                 <span id="viewDebugZoom" style="margin-left: 16px; color: var(--lcars-yellow); display:none;">zoom: 1</span>
                 <span id="viewDebugPan" style="margin-left: 10px; color: var(--lcars-yellow); display:none;">pan: 0, 0</span>
                 <span id="viewDebugFlags" style="margin-left: 10px; color: var(--lcars-yellow); display:none;">panMode: off</span>
             </div>
-            <!-- Canvas controls moved here so mobile layout doesn't shrink the canvas area -->
-            <div class="canvas-controls" id="canvasControls">
+                <!-- App title removed per user request -->
+                <div class="canvas-controls" id="canvasControls" role="toolbar" aria-label="Canvas Controls">
                 <button class="canvas-control-btn" id="zoomOutBtn" title="Zoom Out">−</button>
                 <button class="canvas-control-btn" id="zoomInBtn" title="Zoom In">+</button>
                 <button class="canvas-control-btn" id="panToggleBtn" title="Pan/Move">✋</button>
             </div>
-            <div>Space Engineers MDS Generator v2.0</div>
         </div>
     </div>
 
@@ -2866,7 +2905,7 @@
                 }
             });
             
-            const coverage = totalCells > 0 ? Math.round(occupiedCells / totalCells * 100) : 0;
+            // Coverage calculation removed — not shown to user.
             
             document.getElementById('statusDeck').textContent = `Deck: ${deck.number} (${deck.name})`;
             document.getElementById('statusRooms').textContent = `Rooms: ${deck.rooms.length}`;
@@ -3246,8 +3285,7 @@
             const mouseX = event.clientX - rect.left;
             const mouseY = event.clientY - rect.top;
             // Convert from screen (transformed) coords back to SVG logical coords
-            // mouseX/mouseY are already relative to the transformed SVG bounding rect,
-            // so invert scaling only (translation is already included in rect.left/top).
+            // (legacy behavior: invert scale only; pan is handled by bounding rect).
             const svgX = mouseX / view.zoom;
             const svgY = mouseY / view.zoom;
 
@@ -4562,6 +4600,7 @@
             applyColorPalette(); // Re-apply palette to ensure CSS variables are set
             render();
         });
+        // Window resize handler left as-is; no placeholder to sync.
     </script>
 </body>
 </html>
