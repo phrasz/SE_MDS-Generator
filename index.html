@@ -288,6 +288,18 @@
           .canvas-control-btn:hover { background: rgba(166,101,0,0.36); color: #A66500; }
           .canvas-control-btn.active { background: var(--lcars-orange); color: #000; }
 
+        /* Touch-hold overlay (circular progress shown under finger while holding) */
+        .touch-hold-overlay {
+            position: fixed;
+            width: 64px;
+            height: 64px;
+            pointer-events: none;
+            transform: translate(-50%, -50%);
+            z-index: 12000;
+            display: none;
+            opacity: 0.95;
+        }
+
         .toolbar {
             position: fixed;
             top: 6px;
@@ -1235,6 +1247,11 @@
 
         <div class="canvas-container">
             <svg id="mdsCanvas" width="800" height="600"></svg>
+            <!-- Touch-hold overlay: appears under the finger during long-press -->
+            <svg id="touchHoldOverlay" class="touch-hold-overlay" width="64" height="64" viewBox="0 0 80 80" aria-hidden="true">
+                <circle cx="40" cy="40" r="30" stroke="rgba(255,156,0,0.12)" stroke-width="10" fill="none"></circle>
+                <circle id="touchHoldProgress" cx="40" cy="40" r="30" stroke="var(--lcars-orange)" stroke-width="8" fill="none" stroke-linecap="round" transform="rotate(-90 40 40)"></circle>
+            </svg>
         </div>
         <div class="status-bar">
             <div class="status-info">
@@ -1480,6 +1497,19 @@
         let pinchStartZoom = 1;
         let pinchStartCentroid = null;
         let twoFingerPanStart = null;
+        // Touch-hold animation state
+        let touchHoldRaf = null;
+        let touchHoldActive = false;
+        let touchHoldStartX = 0;
+        let touchHoldStartY = 0;
+        let touchHoldDuration = 600; // ms
+        let touchHoldStartTime = 0;
+        let touchHoldOnComplete = null;
+        // Two-/multi-finger hold timers
+        let twoFingerTimerId = null;
+        let multiFingerTimerId = null;
+        let twoFingerHoldActive = false;
+        let multiFingerHoldActive = false;
         // Track whether mouse is hovering the canvas for wheel-hover zoom
         let isHoveringCanvas = false;
         // Track if user has manually panned/changed view; this prevents auto-centering on unrelated clicks
@@ -1900,46 +1930,148 @@
             const svg = document.getElementById('mdsCanvas');
             // Route events to either the new/pan handlers or the legacy (old-index) handlers
             // Also handle Middle Mouse Button (MMB) here so temporary-pan works on first load.
-            svg.addEventListener('mousedown', (e) => {
-                if (e.button === 1) {
+            svg.addEventListener('touchstart', (e) => {
+                // Cancel any previous timers (defensive)
+                if (twoFingerTimerId) { clearTimeout(twoFingerTimerId); twoFingerTimerId = null; }
+                if (multiFingerTimerId) { clearTimeout(multiFingerTimerId); multiFingerTimerId = null; }
+
+                const touchCount = e.touches ? e.touches.length : 0;
+
+                // Multi-finger (3+) => start toggle-move-mode timer (2s)
+                if (touchCount >= 3) {
+                    // record base positions to allow cancelling if user moves fingers
+                    const startPositions = Array.from(e.touches).map(t => ({ x: t.clientX, y: t.clientY }));
+                    const moveThreshold = 12; // px
+                    multiFingerTimerId = setTimeout(() => {
+                        multiFingerHoldActive = true;
+                        // toggle Move Mode (T flip-flop)
+                        toggleMobileMoveMode();
+                        // ensure two-finger pannning won't auto-start while move-mode is on
+                        if (twoFingerTimerId) { clearTimeout(twoFingerTimerId); twoFingerTimerId = null; }
+                    }, 2000);
+
+                    const cancelMultiIfMove = (ev) => {
+                        // if any touch moved beyond threshold before timeout, cancel
+                        for (let i = 0; i < ev.touches.length; i++) {
+                            const cur = ev.touches[i];
+                            const start = startPositions[i] || startPositions[0];
+                            if (!start) continue;
+                            if (Math.hypot(cur.clientX - start.x, cur.clientY - start.y) > moveThreshold) {
+                                if (multiFingerTimerId) { clearTimeout(multiFingerTimerId); multiFingerTimerId = null; }
+                                svg.removeEventListener('touchmove', cancelMultiIfMove);
+                                svg.removeEventListener('touchend', cancelMultiIfMove);
+                                svg.removeEventListener('touchcancel', cancelMultiIfMove);
+                                break;
+                            }
+                        }
+                    };
+                    svg.addEventListener('touchmove', cancelMultiIfMove, { passive: false });
+                    svg.addEventListener('touchend', cancelMultiIfMove, { passive: false });
+                    svg.addEventListener('touchcancel', cancelMultiIfMove, { passive: false });
+
                     e.preventDefault();
-                    // Prevent immediate clamping/snap after recent zoom
-                    skipClampNextUpdate = true;
-                    // Start panning immediately without changing persistent panMode
+                    return;
+                }
+
+                // Two-finger: start hold timer (1s) to activate temporary two-finger pan (MMB-like)
+                if (touchCount === 2 && !isMobileMoveMode) {
+                    // compute initial centroid for potential pan start
+                    const t0 = e.touches[0];
+                    const t1 = e.touches[1];
+                    const cx = (t0.clientX + t1.clientX) / 2;
+                    const cy = (t0.clientY + t1.clientY) / 2;
+                    const startPositions = [{ x: t0.clientX, y: t0.clientY }, { x: t1.clientX, y: t1.clientY }];
+                    const moveThreshold = 10; // px
+
+                    twoFingerTimerId = setTimeout(() => {
+                        twoFingerHoldActive = true;
+                        // Initialize pan anchor so subsequent touchmove will pan (and not pinch)
+                        pinchStartCentroid = { x: cx, y: cy };
+                        twoFingerPanStart = { x: cx, y: cy, startPanX: view.panX, startPanY: view.panY };
+                        // visually indicate temporary pan (toggle UI button active while held)
+                        const panBtn = document.getElementById('panToggleBtn');
+                        if (panBtn) {
+                            panBtn.dataset._mmbPrevActive = panBtn.classList.contains('active') ? '1' : '0';
+                            panBtn.classList.add('active');
+                        }
+                    }, 1000);
+
+                    // Cancel the two-finger hold if user moves fingers significantly before timeout
+                    const cancelTwoIfMove = (ev) => {
+                        for (let i = 0; i < ev.touches.length; i++) {
+                            const cur = ev.touches[i];
+                            const start = startPositions[i] || startPositions[0];
+                            if (!start) continue;
+                            if (Math.hypot(cur.clientX - start.x, cur.clientY - start.y) > moveThreshold) {
+                                if (twoFingerTimerId) { clearTimeout(twoFingerTimerId); twoFingerTimerId = null; }
+                                svg.removeEventListener('touchmove', cancelTwoIfMove);
+                                svg.removeEventListener('touchend', cancelTwoIfMove);
+                                svg.removeEventListener('touchcancel', cancelTwoIfMove);
+                                break;
+                            }
+                        }
+                    };
+                    svg.addEventListener('touchmove', cancelTwoIfMove, { passive: false });
+                    svg.addEventListener('touchend', cancelTwoIfMove, { passive: false });
+                    svg.addEventListener('touchcancel', cancelTwoIfMove, { passive: false });
+
+                    e.preventDefault();
+                    // do not immediately call handleTouchStart; wait for hold to activate or for move (to be cancelled above)
+                    return;
+                }
+
+                // Single-touch: show single-finger long-press indicator and route to legacy or pan handlers
+                if (touchCount === 1) {
+                    const t = e.touches[0];
+                    startTouchHold(t.clientX, t.clientY, touchHoldDuration, () => {
+                        svg.dispatchEvent(new CustomEvent('longpress', { detail: { clientX: t.clientX, clientY: t.clientY } }));
+                    });
+
+                    if (isMobileMoveMode) {
+                        legacy_handleTouchStart(e);
+                    } else {
+                        handleTouchStart(e);
+                    }
+                }
+            }, { passive: false });
+
+            // Mouse down: handle middle-button temporary pan, otherwise route to handlers
+            svg.addEventListener('mousedown', (e) => {
+                // Middle button (usually button === 1) -> temporary pan while held
+                if (e.button === 1) {
+                    const panBtn = document.getElementById('panToggleBtn');
+                    if (panBtn) {
+                        panBtn.dataset._mmbPrevActive = panBtn.classList.contains('active') ? '1' : '0';
+                        panBtn.classList.add('active');
+                    }
+
                     isPanning = true;
                     panStart.x = e.clientX;
                     panStart.y = e.clientY;
                     panStart.startPanX = view.panX;
                     panStart.startPanY = view.panY;
 
-                    // Start temporary panning. Highlight the pan button while MMB is held.
-                    const panToggleBtn = document.getElementById('panToggleBtn');
-                    if (panToggleBtn) {
-                        panToggleBtn.dataset._mmbPrevActive = panToggleBtn.classList.contains('active') ? '1' : '0';
-                        panToggleBtn.classList.add('active');
-                    }
-
-                    const onMiddleUp = (upEvent) => {
-                        // End panning (be permissive about event.button values)
+                    const onMiddleUp = (ev) => {
+                        if (ev.button !== 1) return;
                         isPanning = false;
-                        // Preserve the pan we just applied and avoid immediate clamping/snap
-                        // on the next transform/update (prevents snap-back when clicking).
+                        // preserve pan when MMB temporary-pan ends and avoid immediate clamp
                         preservePanAfterDisable = true;
                         skipClampNextUpdate = true;
                         saveViewToConfig();
 
-                        // Restore pan button UI to reflect persistent panMode
-                        if (panToggleBtn) {
-                            const prev = panToggleBtn.dataset._mmbPrevActive === '1';
-                            panToggleBtn.classList.toggle('active', panMode || prev);
-                            delete panToggleBtn.dataset._mmbPrevActive;
+                        if (panBtn) {
+                            const prev = panBtn.dataset._mmbPrevActive === '1';
+                            panBtn.classList.toggle('active', panMode || prev);
+                            delete panBtn.dataset._mmbPrevActive;
                         }
 
                         document.removeEventListener('mouseup', onMiddleUp);
                     };
                     document.addEventListener('mouseup', onMiddleUp);
+                    e.preventDefault();
                     return;
                 }
+
                 if (panMode) handleMouseDown(e); else legacy_handleMouseDown(e);
             });
             svg.addEventListener('mousemove', (e) => {
@@ -1950,23 +2082,7 @@
             svg.addEventListener('mouseup',   (e) => { if (e.button === 1) return; if (panMode) handleMouseUp(e);   else legacy_handleMouseUp(e); });
             svg.addEventListener('mouseleave',(e) => { if (e.button === 1) return; if (panMode) handleMouseUp(e);   else legacy_handleMouseUp(e); });
             
-            // Touch: prioritize mobile Move Mode, otherwise route to appropriate handler
-            svg.addEventListener('touchstart', (e) => {
-                if (isMobileMoveMode) return legacy_handleTouchStart(e);
-                if (panMode) return handleTouchStart(e); else return legacy_handleTouchStart(e);
-            }, { passive: false });
-            svg.addEventListener('touchmove',  (e) => {
-                if (isMobileMoveMode) return legacy_handleTouchMove(e);
-                if (panMode) return handleTouchMove(e);  else return legacy_handleTouchMove(e);
-            }, { passive: false });
-            svg.addEventListener('touchend',   (e) => {
-                if (isMobileMoveMode) return legacy_handleTouchEnd(e);
-                if (panMode) return handleTouchEnd(e);   else return legacy_handleTouchEnd(e);
-            });
-            svg.addEventListener('touchcancel',(e) => {
-                if (isMobileMoveMode) return legacy_handleTouchEnd(e);
-                if (panMode) return handleTouchEnd(e);   else return legacy_handleTouchEnd(e);
-            });
+                // Touch listeners handled above (two-finger / multi-finger hold logic).
 
             // Canvas control buttons
             const zoomInBtn = document.getElementById('zoomInBtn');
@@ -2086,6 +2202,57 @@
             const baselineBottom = GRID_HEADER_BASE - 20; // original bottom used for rect anchoring
             const extraTop = Math.max(0, headerH - baselineBottom);
             return GRID_HEADER_BASE + extraTop;
+        }
+
+        // Touch-hold overlay control: start an animated circular progress at
+        // screen coordinates (clientX, clientY). onComplete will be called
+        // if the hold reaches full duration. Cancel by calling cancelTouchHold().
+        function startTouchHold(clientX, clientY, duration = 600, onComplete = null) {
+            const overlay = document.getElementById('touchHoldOverlay');
+            const progress = document.getElementById('touchHoldProgress');
+            if (!overlay || !progress) return;
+            touchHoldDuration = duration;
+            touchHoldStartX = clientX;
+            touchHoldStartY = clientY;
+            touchHoldOnComplete = onComplete;
+            overlay.style.left = `${clientX}px`;
+            overlay.style.top = `${clientY}px`;
+            overlay.style.display = 'block';
+            const r = parseFloat(progress.getAttribute('r')) || 30;
+            const circ = 2 * Math.PI * r;
+            progress.style.strokeDasharray = `${circ}`;
+            progress.style.strokeDashoffset = `${circ}`;
+            touchHoldStartTime = performance.now();
+            touchHoldActive = true;
+
+            function frame(now) {
+                if (!touchHoldActive) return;
+                const elapsed = now - touchHoldStartTime;
+                const t = Math.min(1, elapsed / touchHoldDuration);
+                const offset = circ * (1 - t);
+                progress.style.strokeDashoffset = `${offset}`;
+                // subtle scale for feedback
+                overlay.style.transform = `translate(-50%, -50%) scale(${1 + 0.04 * t})`;
+                if (t >= 1) {
+                    // complete
+                    touchHoldActive = false;
+                    overlay.style.display = 'none';
+                    if (typeof touchHoldOnComplete === 'function') {
+                        try { touchHoldOnComplete(); } catch (err) { console.error(err); }
+                    }
+                    return;
+                }
+                touchHoldRaf = requestAnimationFrame(frame);
+            }
+            touchHoldRaf = requestAnimationFrame(frame);
+        }
+
+        function cancelTouchHold() {
+            const overlay = document.getElementById('touchHoldOverlay');
+            if (touchHoldRaf) { cancelAnimationFrame(touchHoldRaf); touchHoldRaf = null; }
+            touchHoldActive = false;
+            touchHoldOnComplete = null;
+            if (overlay) overlay.style.display = 'none';
         }
 
         function applyColorPalette() {
