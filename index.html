@@ -1248,9 +1248,10 @@
         <div class="canvas-container">
             <svg id="mdsCanvas" width="800" height="600"></svg>
             <!-- Touch-hold overlay: appears under the finger during long-press -->
-            <svg id="touchHoldOverlay" class="touch-hold-overlay" width="64" height="64" viewBox="0 0 80 80" aria-hidden="true">
-                <circle cx="40" cy="40" r="30" stroke="rgba(255,156,0,0.12)" stroke-width="10" fill="none"></circle>
-                <circle id="touchHoldProgress" cx="40" cy="40" r="30" stroke="var(--lcars-orange)" stroke-width="8" fill="none" stroke-linecap="round" transform="rotate(-90 40 40)"></circle>
+            <!-- Enlarged touch-hold overlay (about 4x bigger) so finger doesn't occlude it -->
+            <svg id="touchHoldOverlay" class="touch-hold-overlay" width="256" height="256" viewBox="0 0 320 320" aria-hidden="true">
+                <circle cx="160" cy="160" r="120" stroke="rgba(255,156,0,0.12)" stroke-width="20" fill="none"></circle>
+                <circle id="touchHoldProgress" cx="160" cy="160" r="120" stroke="var(--lcars-orange)" stroke-width="16" fill="none" stroke-linecap="round" transform="rotate(-90 160 160)"></circle>
             </svg>
         </div>
         <div class="status-bar">
