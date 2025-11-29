@@ -344,6 +344,16 @@
                 align-items: center;
                 margin: 0 auto;
           }
+                /* Prevent default browser touch gestures on the canvas area so
+                   our JS handlers can implement single-finger pan and move-mode
+                   touches reliably. */
+                .canvas-container, #mdsCanvas {
+                    touch-action: none;
+                    -ms-touch-action: none;
+                    user-select: none;
+                    -webkit-user-select: none;
+                    -webkit-touch-callout: none;
+                }
 
         #mdsCanvas {
             display: block;
@@ -1529,8 +1539,6 @@
         let multiFingerTimerId = null;
         let twoFingerHoldActive = false;
         let multiFingerHoldActive = false;
-        // Temporary single-finger pan started by long-press (not persistent panMode)
-        let singleFingerTempPan = false;
         // Track whether mouse is hovering the canvas for wheel-hover zoom
         let isHoveringCanvas = false;
         // Track if user has manually panned/changed view; this prevents auto-centering on unrelated clicks
@@ -2131,8 +2139,6 @@
 
             // Ensure all touchend/touchcancel paths clear timers and cancel the hold overlay.
             const clearTouchHoldAndTimers = (ev) => {
-                // Save whether a temporary single-finger pan was active so we can persist it below
-                const wasSingleFingerTempPan = singleFingerTempPan;
                 // Clear two- and multi-finger timers
                 if (typeof twoFingerTimerId === 'number') { clearTimeout(twoFingerTimerId); twoFingerTimerId = null; } else { twoFingerTimerId = null; }
                 if (multiFingerTimerId) { clearTimeout(multiFingerTimerId); multiFingerTimerId = null; }
@@ -2180,46 +2186,10 @@
                 } catch (err) {
                     // ignore
                 }
-                // If a temporary single-finger (long-press) pan was active, persist and clear it
-                try {
-                    if (wasSingleFingerTempPan) {
-                        singleFingerTempPan = false;
-                        preservePanAfterDisable = true;
-                        skipClampNextUpdate = true;
-                        // ensure panning is stopped
-                        isPanning = false;
-                        saveViewToConfig();
-                    }
-                } catch (err) {
-                    // ignore
-                }
                 // Remove any transient single-touch move trackers
                 // (We cannot remove by reference here; remove all listeners using a short-lived approach)
                 // A safe approach: clone the svg and reattach persistent listeners is heavy-handed; instead rely on singleTouchMoveTracker removing itself when not needed.
             };
-
-            // Long-press custom event: start a temporary single-finger pan (hold-and-drag)
-            svg.addEventListener('longpress', (ev) => {
-                try {
-                    // Do not start single-finger temp-pan while Move Mode is active
-                    if (isMobileMoveMode) return;
-                    // If persistent pan mode already active, nothing to do
-                    if (panMode) return;
-                    const panBtn = document.getElementById('panToggleBtn');
-                    if (panBtn) {
-                        panBtn.dataset._twoPrevActive = panBtn.classList.contains('active') ? '1' : '0';
-                        panBtn.classList.add('active');
-                    }
-                    singleFingerTempPan = true;
-                    isPanning = true;
-                    panStart.x = ev.detail.clientX;
-                    panStart.y = ev.detail.clientY;
-                    panStart.startPanX = view.panX;
-                    panStart.startPanY = view.panY;
-                } catch (err) {
-                    // ignore
-                }
-            });
 
             svg.addEventListener('touchend', (e) => {
                 // If this was a short tap while Move Mode is active and there was minimal movement,
@@ -4052,12 +4022,15 @@
             if (!isMobileMoveMode) {
                 return;
             }
+            // Route to legacy mobile move-mode handler which enforces
+            // "tap to place" and "single-finger drag" semantics for the
+            // currently selected item.
             const touch = event.touches[0];
             const mouseEvent = new MouseEvent('mousedown', {
                 clientX: touch.clientX,
                 clientY: touch.clientY
             });
-            handleMouseDown(mouseEvent);
+            legacy_handleMouseDown(mouseEvent);
         }
 
         function handleTouchMove(event) {
@@ -4097,11 +4070,14 @@
                 return;
             }
 
-            // Touch drag for mobile move mode: translate to mousemove
+            // Touch drag for mobile move mode: translate to legacy mousemove
+            // (legacy handler implements single-finger drag of the selected
+            // item rather than relying on hit-testing which can be flaky on
+            // touchscreens).
             if (!isMobileMoveMode) return;
             const touch = event.touches[0];
             const mouseEvent = new MouseEvent('mousemove', { clientX: touch.clientX, clientY: touch.clientY });
-            handleMouseMove(mouseEvent);
+            legacy_handleMouseMove(mouseEvent);
         }
 
         function handleTouchEnd(event) {
@@ -4152,8 +4128,10 @@
             if (!isMobileMoveMode) {
                 return;
             }
+            // Route to legacy handler to conclude any drag of the selected
+            // item so that mobile semantics (selected-only) are preserved.
             const mouseEvent = new MouseEvent('mouseup', {});
-            handleMouseUp(mouseEvent);
+            legacy_handleMouseUp(mouseEvent);
         }
 
         // Legacy (old-index) drag and touch handlers (kept separate)
