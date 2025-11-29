@@ -1647,6 +1647,64 @@
             render();
         }
 
+        // Fit the SVG canvas into the available container area without modifying other UI.
+        // If `force` is true, always apply; otherwise only when no saved view exists.
+        function fitCanvasToContainer(force = false) {
+            try {
+                const svg = document.getElementById('mdsCanvas');
+                const container = document.querySelector('.canvas-container');
+                if (!svg || !container) return;
+
+                // Determine intrinsic SVG size: prefer viewBox if present, else width/height attrs
+                let svgWidth = null, svgHeight = null;
+                if (svg.viewBox && svg.viewBox.baseVal && svg.viewBox.baseVal.width) {
+                    svgWidth = svg.viewBox.baseVal.width;
+                    svgHeight = svg.viewBox.baseVal.height;
+                }
+                if (!svgWidth) svgWidth = parseFloat(svg.getAttribute('width')) || svg.clientWidth || svg.getBoundingClientRect().width;
+                if (!svgHeight) svgHeight = parseFloat(svg.getAttribute('height')) || svg.clientHeight || svg.getBoundingClientRect().height;
+
+                if (!svgWidth || !svgHeight) return;
+
+                // Available area inside container (container is sized to account for HUD)
+                let availableWidth = container.clientWidth;
+                const availableHeight = container.clientHeight;
+
+                // Fallback: if container reports an unusually small width (e.g. 0 or <20% of window),
+                // compute available width from window minus sidebar width to avoid extreme downscales.
+                if (!availableWidth || availableWidth < window.innerWidth * 0.2) {
+                    const sidebar = document.querySelector('.sidebar');
+                    const sidebarW = (sidebar && sidebar.offsetWidth) ? sidebar.offsetWidth : 0;
+                    availableWidth = Math.max(availableWidth, window.innerWidth - sidebarW - 24);
+                }
+
+                // Compute scale to fit entire SVG inside the container with small padding
+                const padding = Math.max(8, Math.round(Math.min(availableWidth, availableHeight) * 0.02));
+                const scaleX = (availableWidth - padding * 2) / svgWidth;
+                const scaleY = (availableHeight - padding * 2) / svgHeight;
+                const targetScale = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, Math.min(scaleX, scaleY)));
+
+                // If user has a saved view and force is false, do not override.
+                if (!force && config && config.view && typeof config.view.zoom === 'number') {
+                    return;
+                }
+
+                view.zoom = targetScale;
+
+                // Center the scaled SVG inside the container
+                const panX = Math.round((availableWidth - svgWidth * view.zoom) / 2);
+                const panY = Math.round((availableHeight - svgHeight * view.zoom) / 2);
+                view.panX = panX;
+                view.panY = panY;
+
+                // Update transform and render; do not persist unless caller wants to.
+                updateTransform();
+                render();
+            } catch (err) {
+                console.error('fitCanvasToContainer error', err);
+            }
+        }
+
         function zoomIn() { setZoom(view.zoom * 1.15, null, null, true); }
         function zoomOut() { setZoom(view.zoom / 1.15, null, null, true); }
 
@@ -1749,6 +1807,11 @@
             if (svg) {
                 svg.style.cursor = 'default';
                 svg.style.touchAction = 'auto';
+            }
+
+            // If no saved view exists, fit canvas to container on first load (mobile-friendly)
+            if (!config.view) {
+                setTimeout(() => { fitCanvasToContainer(true); }, 60);
             }
         }
 
@@ -2303,7 +2366,7 @@
                 // Zoom keys (support both '=' and '+')
                 if (e.key === '=' || e.key === '+') { zoomIn(); }
                 else if (e.key === '-') { zoomOut(); }
-                else if (e.key === '0') { view.zoom = 1; saveViewToConfig(); updateTransform(); render(); }
+                else if (e.key === '0') { fitCanvasToContainer(true); saveViewToConfig(); }
 
                 // Toggle pan/move mode
                 if (e.key && e.key.toLowerCase() === 'p') {
