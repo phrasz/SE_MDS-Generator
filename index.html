@@ -248,17 +248,16 @@
             display: flex;
             flex-direction: column;
             background: #000;
-            position: relative;
         }
 
         /* Canvas controls (zoom, pan toggle) — inline inside status bar row
            but visually floated above the canvas so they never overlap text. */
         .canvas-controls {
             position: fixed;
-            right: 12px;
-            bottom: 72px;
+            right: 2vw;
+            bottom: 8vw;
             display: inline-flex;
-            gap: 8px;
+            gap: 1vw;
             align-items: center;
             z-index: 13000;
             pointer-events: auto;
@@ -303,15 +302,15 @@
 
         .toolbar {
             position: fixed;
-            top: 6px;
-            right: 6px;
+            top: 2vw;
+            right: 2vw;
             background: transparent;
-            padding: 6px;
-            border-radius: 8px;
+            padding: 0.5vw;
+            border-radius: 0.7vw;
             border: none;
             display: flex;
             flex-direction: column;
-            gap: 6px;
+            gap: 0.7vw;
             z-index: 12000;
         }
         
@@ -332,13 +331,19 @@
 
             .canvas-container {
                 flex: 1;
-                overflow: hidden !important;
+                overflow: auto;
                 position: relative;
                 z-index: 1;
+                /* Remove vertical padding so the SVG border sits at the outermost pixels
+                    (no extra top/bottom whitespace). Keep horizontal padding for layout. */
                 padding: 0 20px;
                 display: flex;
                 justify-content: center;
                 align-items: center;
+                /* The SVG's size is controlled by its own attributes and rendering logic.
+                    Do not constrain the canvas container by viewport size — keep overflow
+                    so users on smaller screens can scroll, and large screens won't force
+                    the SVG to scale. */
                 margin: 0 auto;
           }
 
@@ -449,18 +454,18 @@
         /* Status Bar */
         .status-bar {
             background: #111;
-            padding: 10px 20px;
-            border-top: 2px solid var(--lcars-blue);
+            padding: 1vw 2vw;
+            border-top: 0.2vw solid var(--lcars-blue);
             display: flex;
             align-items: center;
-            font-size: 12px;
+            font-size: 1.2vw;
             color: #888;
             position: fixed;
             left: 0;
             right: 0;
             bottom: 0;
             z-index: 12000;
-            padding-right: 140px;
+            padding-right: 14vw;
         }
 
         /* Left area (Deck / Rooms) stays left-aligned */
