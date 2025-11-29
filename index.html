@@ -763,12 +763,12 @@
                      height: calc(100vh - 84px - 56px); /* 84px for status bar, 56px for toolbar */
                      min-height: 220px;
                      max-height: none !important;
-                     overflow: auto !important;
+                     overflow: visible !important;
                      padding: 0 10px 84px 10px !important; /* bottom padding for status bar */
                      display: flex;
                      justify-content: center;
                      align-items: center;
-                     touch-action: pan-x pan-y !important;
+                     touch-action: none !important;
                 }
                 /* Do not constrain the SVG with viewport-based max sizes. The SVG's
                     intrinsic size (attributes/JS) is authoritative for exports and
@@ -2165,11 +2165,13 @@
 
             // Global touchmove handler to support immediate two-finger temporary pan
             svg.addEventListener('touchmove', (e) => {
-                if (isMobileMoveMode && e.touches.length === 1) {
-                    legacy_handleTouchMove(e);
+                // Disable pinch-to-zoom
+                if (e.touches.length === 2 && e.scale !== undefined) {
+                    e.preventDefault();
                     return;
                 }
-                if (twoFingerHoldActive && e.touches && e.touches.length >= 2) {
+                // Two-finger pan
+                if (twoFingerHoldActive && e.touches && e.touches.length === 2) {
                     const t0 = e.touches[0];
                     const t1 = e.touches[1];
                     const cx = (t0.clientX + t1.clientX) / 2;
@@ -2181,6 +2183,12 @@
                         view.panY = twoFingerPanStart.startPanY + deltaY;
                         updateTransform();
                     }
+                    e.preventDefault();
+                    return;
+                }
+                // One-finger drag in Move Mode
+                if (isMobileMoveMode && e.touches.length === 1) {
+                    legacy_handleTouchMove(e);
                     e.preventDefault();
                     return;
                 }
