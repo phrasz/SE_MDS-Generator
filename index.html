@@ -249,6 +249,7 @@
             flex-direction: column;
             background: #000;
             position: relative;
+            min-width: 0; /* allow flex child to shrink properly on small screens */
         }
 
         /* Canvas controls (zoom, pan toggle) — inline inside status bar row
@@ -332,6 +333,8 @@
 
             .canvas-container {
                 flex: 1;
+                width: 100%;
+                min-width: 0; /* important to prevent flex item collapsing to padding width */
                 overflow: hidden !important;
                 position: relative;
                 z-index: 1;
@@ -2366,7 +2369,7 @@
                 // Zoom keys (support both '=' and '+')
                 if (e.key === '=' || e.key === '+') { zoomIn(); }
                 else if (e.key === '-') { zoomOut(); }
-                else if (e.key === '0') { fitCanvasToContainer(true); saveViewToConfig(); }
+                else if (e.key === '0') { view.zoom = 1; saveViewToConfig(); updateTransform(); render(); }
 
                 // Toggle pan/move mode
                 if (e.key && e.key.toLowerCase() === 'p') {
