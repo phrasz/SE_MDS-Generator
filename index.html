@@ -248,6 +248,7 @@
             display: flex;
             flex-direction: column;
             background: #000;
+            position: relative;
         }
 
         /* Canvas controls (zoom, pan toggle) — inline inside status bar row
@@ -255,11 +256,11 @@
         .canvas-controls {
             position: fixed;
             right: 12px;
-            bottom: 8px;
+            bottom: 72px;
             display: inline-flex;
             gap: 8px;
             align-items: center;
-            z-index: 10050;
+            z-index: 13000;
             pointer-events: auto;
             margin-left: 0;
         }
@@ -304,14 +305,14 @@
             position: fixed;
             top: 6px;
             right: 6px;
-            background: transparent; /* remove gray background so help button stands alone */
-            padding: 6px; /* small padding to allow compact tab placement */
+            background: transparent;
+            padding: 6px;
             border-radius: 8px;
             border: none;
             display: flex;
             flex-direction: column;
             gap: 6px;
-            z-index: 10002;
+            z-index: 12000;
         }
         
         .toolbar-row-1,
@@ -331,19 +332,13 @@
 
             .canvas-container {
                 flex: 1;
-                overflow: auto;
+                overflow: hidden !important;
                 position: relative;
                 z-index: 1;
-                /* Remove vertical padding so the SVG border sits at the outermost pixels
-                    (no extra top/bottom whitespace). Keep horizontal padding for layout. */
                 padding: 0 20px;
                 display: flex;
                 justify-content: center;
                 align-items: center;
-                /* The SVG's size is controlled by its own attributes and rendering logic.
-                    Do not constrain the canvas container by viewport size — keep overflow
-                    so users on smaller screens can scroll, and large screens won't force
-                    the SVG to scale. */
                 margin: 0 auto;
           }
 
@@ -460,8 +455,11 @@
             align-items: center;
             font-size: 12px;
             color: #888;
-            position: relative;
-            /* Reserve room on the right so floated controls never overlap status text */
+            position: fixed;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            z-index: 12000;
             padding-right: 140px;
         }
 
