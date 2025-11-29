@@ -792,10 +792,15 @@
                      max-width: none !important;
                      max-height: none !important;
                      touch-action: none !important;
-                     position: absolute !important;
-                     left: 0 !important;
-                     top: 0 !important;
+                     /* Keep the SVG inline within the container so its border
+                        lines up with the visible canvas area. Avoid absolute
+                        positioning which can shift the SVG relative to the
+                        container and cause border misalignment. */
+                     position: relative !important;
+                     left: auto !important;
+                     top: auto !important;
                      z-index: 1 !important;
+                     margin: 0 auto !important;
                  }
                 /* Ensure top toolbar is fixed and above the canvas on mobile */
                 .toolbar {
@@ -1631,6 +1636,35 @@
             p.style.display = 'none';
         }
 
+        // Temporary on-screen touch debug helper (toggle via `window.DEBUG_TOUCH`)
+        function debugTouch(msg, persistMs = 2000) {
+            try {
+                if (!window.DEBUG_TOUCH) return;
+                let el = document.getElementById('touchDebug');
+                if (!el) {
+                    el = document.createElement('div');
+                    el.id = 'touchDebug';
+                    el.style.position = 'fixed';
+                    el.style.left = '8px';
+                    el.style.top = '8px';
+                    el.style.padding = '8px 10px';
+                    el.style.background = 'rgba(0,0,0,0.6)';
+                    el.style.color = '#FFDDAA';
+                    el.style.fontSize = '12px';
+                    el.style.zIndex = 14000;
+                    el.style.pointerEvents = 'none';
+                    el.style.maxWidth = '60vw';
+                    el.style.border = '1px solid rgba(255,160,80,0.25)';
+                    document.body.appendChild(el);
+                }
+                el.textContent = msg;
+                el.style.display = 'block';
+                if (persistMs > 0) {
+                    setTimeout(() => { try { el.style.display = 'none'; } catch (e) {} }, persistMs);
+                }
+            } catch (err) { /* ignore */ }
+        }
+
         function setZoom(newZoom, anchorX = null, anchorY = null, noClamp = false) {
             const oldZoom = view.zoom;
             // Refresh debug values (kept hidden per user preference)
@@ -2028,6 +2062,7 @@
                 if (typeof multiFingerTimerId === 'number') { clearTimeout(multiFingerTimerId); multiFingerTimerId = null; } else { multiFingerTimerId = null; }
 
                 const touchCount = e.touches ? e.touches.length : 0;
+                debugTouch && debugTouch(`touchstart count=${touchCount}`, 1200);
 
                 // Multi-finger (3+) => start toggle-move-mode timer (2s)
                 if (touchCount >= 3) {
@@ -2130,8 +2165,10 @@
                     }, touchHoldDuration);
 
                     if (isMobileMoveMode) {
+                        debugTouch && debugTouch('touchstart -> legacy move-mode', 1200);
                         legacy_handleTouchStart(e);
                     } else {
+                        debugTouch && debugTouch('touchstart -> pan/new handlers', 1200);
                         handleTouchStart(e);
                     }
                 }
@@ -2201,12 +2238,15 @@
                         const t = e.changedTouches[0];
                         if (!moved && duration < 400) {
                             // Compute SVG-local coordinates taking pan/zoom into account
-                            const svgEl = document.getElementById('mdsCanvas');
-                            const rect = svgEl.getBoundingClientRect();
-                            const clientX = t.clientX;
-                            const clientY = t.clientY;
-                            const svgX = (clientX - rect.left - view.panX) / view.zoom;
-                            const svgY = (clientY - rect.top - view.panY) / view.zoom;
+                                const svgEl = document.getElementById('mdsCanvas');
+                                const rect = svgEl.getBoundingClientRect();
+                                const clientX = t.clientX;
+                                const clientY = t.clientY;
+                                // getBoundingClientRect already accounts for CSS transforms
+                                // (translate/scale), so convert screen->SVG logical coords
+                                // by subtracting the rect origin and dividing by the zoom.
+                                const svgX = (clientX - rect.left) / view.zoom;
+                                const svgY = (clientY - rect.top) / view.zoom;
                             const cellSize = config.grid_cell_size;
                             const xBase = config.padding;
                             const yBase = computeContentYBase();
@@ -2222,11 +2262,13 @@
                                 room.position = [clampedX, clampedY];
                                 saveToLocalStorage();
                                 render();
+                                debugTouch && debugTouch(`tap-to-place room ${clampedX},${clampedY}`, 1500);
                             } else if (selectedOutlineIndex !== -1 && config.manual_outlines && config.manual_outlines[selectedOutlineIndex]) {
                                 const outline = config.manual_outlines[selectedOutlineIndex];
                                 outline.position = [clampedX, clampedY];
                                 saveToLocalStorage();
                                 render();
+                                debugTouch && debugTouch(`tap-to-place outline ${clampedX},${clampedY}`, 1500);
                             }
                         }
                     }
@@ -2247,6 +2289,17 @@
                     e.preventDefault();
                     return;
                 }
+                // Single-finger pan when user started pan (panMode active)
+                if (isPanning && e.touches && e.touches.length >= 1) {
+                    const dx = e.touches[0].clientX - panStart.x;
+                    const dy = e.touches[0].clientY - panStart.y;
+                    view.panX = panStart.startPanX + dx;
+                    view.panY = panStart.startPanY + dy;
+                    updateTransform();
+                    debugTouch && debugTouch('touchmove -> single-finger pan', 200);
+                    e.preventDefault();
+                    return;
+                }
                 // Two-finger pan
                 if (twoFingerHoldActive && e.touches && e.touches.length === 2) {
                     const t0 = e.touches[0];
@@ -2260,6 +2313,7 @@
                         view.panY = twoFingerPanStart.startPanY + deltaY;
                         updateTransform();
                     }
+                    debugTouch && debugTouch('touchmove -> two-finger pan', 200);
                     e.preventDefault();
                     return;
                 }
