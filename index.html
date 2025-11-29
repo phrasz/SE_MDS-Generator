@@ -254,12 +254,12 @@
            but visually floated above the canvas so they never overlap text. */
         .canvas-controls {
             position: fixed;
-            right: 2vw;
-            bottom: 8vw;
+            right: 12px;
+            bottom: 8px;
             display: inline-flex;
-            gap: 1vw;
+            gap: 8px;
             align-items: center;
-            z-index: 13000;
+            z-index: 10050;
             pointer-events: auto;
             margin-left: 0;
         }
@@ -302,16 +302,16 @@
 
         .toolbar {
             position: fixed;
-            top: 2vw;
-            right: 2vw;
-            background: transparent;
-            padding: 0.5vw;
-            border-radius: 0.7vw;
+            top: 6px;
+            right: 6px;
+            background: transparent; /* remove gray background so help button stands alone */
+            padding: 6px; /* small padding to allow compact tab placement */
+            border-radius: 8px;
             border: none;
             display: flex;
             flex-direction: column;
-            gap: 0.7vw;
-            z-index: 12000;
+            gap: 6px;
+            z-index: 10002;
         }
         
         .toolbar-row-1,
@@ -454,18 +454,15 @@
         /* Status Bar */
         .status-bar {
             background: #111;
-            padding: 1vw 2vw;
-            border-top: 0.2vw solid var(--lcars-blue);
+            padding: 10px 20px;
+            border-top: 2px solid var(--lcars-blue);
             display: flex;
             align-items: center;
-            font-size: 1.2vw;
+            font-size: 12px;
             color: #888;
-            position: fixed;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            z-index: 12000;
-            padding-right: 14vw;
+            position: relative;
+            /* Reserve room on the right so floated controls never overlap status text */
+            padding-right: 140px;
         }
 
         /* Left area (Deck / Rooms) stays left-aligned */
@@ -3915,106 +3912,30 @@
 
         // Touch event handlers
         function handleTouchStart(event) {
+            if (isMobileMoveMode) {
+                legacy_handleTouchStart(event);
+                return;
+            }
             event.preventDefault();
-            // Handle pinch (two-finger) start
-            if (event.touches && event.touches.length === 2) {
-                // Two-finger gesture: handle both pinch (zoom) and centroid pan.
-                isPinching = true;
-                const t0 = event.touches[0];
-                const t1 = event.touches[1];
-                const dx = t0.clientX - t1.clientX;
-                const dy = t0.clientY - t1.clientY;
-                pinchStartDistance = Math.sqrt(dx * dx + dy * dy);
-                pinchStartZoom = view.zoom;
-                // Track centroid for two-finger panning
-                const cx = (t0.clientX + t1.clientX) / 2;
-                const cy = (t0.clientY + t1.clientY) / 2;
-                pinchStartCentroid = { x: cx, y: cy };
-                twoFingerPanStart = { x: cx, y: cy, startPanX: view.panX, startPanY: view.panY };
-                return;
-            }
-
-            // If pan mode is enabled and not mobile move mode, start panning via touch
-            if (panMode && !isMobileMoveMode) {
-                isPanning = true;
-                panStart.x = event.touches[0].clientX;
-                panStart.y = event.touches[0].clientY;
-                panStart.startPanX = view.panX;
-                panStart.startPanY = view.panY;
-                return;
-            }
-
-            // Only allow touch interaction when in mobile move mode for dragging rooms/outlines
-            if (!isMobileMoveMode) {
-                return;
-            }
-            const touch = event.touches[0];
-            const mouseEvent = new MouseEvent('mousedown', {
-                clientX: touch.clientX,
-                clientY: touch.clientY
-            });
-            handleMouseDown(mouseEvent);
+            // ...existing code for pan/two-finger...
         }
 
         function handleTouchMove(event) {
+            if (isMobileMoveMode) {
+                legacy_handleTouchMove(event);
+                return;
+            }
             event.preventDefault();
-            // Two-finger gesture: centroid pan + pinch zoom
-            if (event.touches && event.touches.length === 2) {
-                const t0 = event.touches[0];
-                const t1 = event.touches[1];
-                const dx = t0.clientX - t1.clientX;
-                const dy = t0.clientY - t1.clientY;
-                const dist = Math.sqrt(dx * dx + dy * dy);
-
-                // Compute centroid and apply two-finger pan based on centroid delta
-                const cx = (t0.clientX + t1.clientX) / 2;
-                const cy = (t0.clientY + t1.clientY) / 2;
-                if (twoFingerPanStart && pinchStartCentroid) {
-                    const deltaX = cx - pinchStartCentroid.x;
-                    const deltaY = cy - pinchStartCentroid.y;
-                    view.panX = twoFingerPanStart.startPanX + deltaX;
-                    view.panY = twoFingerPanStart.startPanY + deltaY;
-                    // Update transform while gesturing
-                    updateTransform();
-                }
-
-                // Handle pinch zoom (scale) anchored at centroid
-                // Pinch-to-zoom disabled by user preference; two-finger gestures only pan.
-                return;
-            }
-
-            // Single-finger panning when in panning state
-            if (isPanning && event.touches && event.touches.length >= 1) {
-                const dx = event.touches[0].clientX - panStart.x;
-                const dy = event.touches[0].clientY - panStart.y;
-                view.panX = panStart.startPanX + dx;
-                view.panY = panStart.startPanY + dy;
-                updateTransform();
-                return;
-            }
-
-            // Touch drag for mobile move mode: translate to mousemove
-            if (!isMobileMoveMode) return;
-            const touch = event.touches[0];
-            const mouseEvent = new MouseEvent('mousemove', { clientX: touch.clientX, clientY: touch.clientY });
-            handleMouseMove(mouseEvent);
+            // ...existing code for pan/two-finger...
         }
 
         function handleTouchEnd(event) {
-            event.preventDefault();
-            // If we were tracking a pinch/two-finger pan but now have fewer than
-            // two touches, clear pinch state and persist the view.
-            if (isPinching && (!event.touches || event.touches.length < 2)) {
-                isPinching = false;
-                pinchStartDistance = 0;
-                pinchStartZoom = view.zoom;
-                pinchStartCentroid = null;
-                twoFingerPanStart = null;
-                saveViewToConfig();
-                // continue to allow other end-of-touch behavior below
+            if (isMobileMoveMode) {
+                legacy_handleTouchEnd(event);
+                return;
             }
-            if (event.touches && event.touches.length === 2) {
-                const t0 = event.touches[0];
+            event.preventDefault();
+            // ...existing code for pan/two-finger...
                 const t1 = event.touches[1];
                 const dx = t0.clientX - t1.clientX;
                 const dy = t0.clientY - t1.clientY;
