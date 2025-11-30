@@ -366,6 +366,11 @@
                     user's viewport and change the border size. */
             position: relative;
             z-index: 0;
+            /* Ensure transforms (translate then scale) use the top-left as the
+               origin so our inverse calculations (screen -> SVG logical coords)
+               are valid and consistent across devices. */
+            transform-origin: 0 0;
+            -webkit-transform-origin: 0 0;
         }
 
         /* Room List */
@@ -1507,6 +1512,9 @@
         // Mobile move mode state
         let isMobileMoveMode = false;
         let mobileSelectionMode = 'rooms'; // 'rooms' or 'outlines'
+        // Last grid cell applied during a drag (used to avoid redundant updates)
+        let lastDragGridX = null;
+        let lastDragGridY = null;
 
         // View transform (zoom and pan) settings - imported from three-buttons
         let view = { zoom: 1.0, panX: 0, panY: 0 };
@@ -1636,34 +1644,7 @@
             p.style.display = 'none';
         }
 
-        // Temporary on-screen touch debug helper (toggle via `window.DEBUG_TOUCH`)
-        function debugTouch(msg, persistMs = 2000) {
-            try {
-                if (!window.DEBUG_TOUCH) return;
-                let el = document.getElementById('touchDebug');
-                if (!el) {
-                    el = document.createElement('div');
-                    el.id = 'touchDebug';
-                    el.style.position = 'fixed';
-                    el.style.left = '8px';
-                    el.style.top = '8px';
-                    el.style.padding = '8px 10px';
-                    el.style.background = 'rgba(0,0,0,0.6)';
-                    el.style.color = '#FFDDAA';
-                    el.style.fontSize = '12px';
-                    el.style.zIndex = 14000;
-                    el.style.pointerEvents = 'none';
-                    el.style.maxWidth = '60vw';
-                    el.style.border = '1px solid rgba(255,160,80,0.25)';
-                    document.body.appendChild(el);
-                }
-                el.textContent = msg;
-                el.style.display = 'block';
-                if (persistMs > 0) {
-                    setTimeout(() => { try { el.style.display = 'none'; } catch (e) {} }, persistMs);
-                }
-            } catch (err) { /* ignore */ }
-        }
+        
 
         function setZoom(newZoom, anchorX = null, anchorY = null, noClamp = false) {
             const oldZoom = view.zoom;
@@ -2054,6 +2035,49 @@
             
             // Canvas drag and drop - Mouse / Touch events
             const svg = document.getElementById('mdsCanvas');
+            // Long-press custom event (dispatched elsewhere) — start dragging
+            // the currently-selected item when the user long-presses in Move Mode.
+            svg.addEventListener('longpress', (ev) => {
+                if (!isMobileMoveMode) return;
+                try {
+                    const detail = ev && ev.detail ? ev.detail : null;
+                    const cx = detail && detail.clientX ? detail.clientX : null;
+                    const cy = detail && detail.clientY ? detail.clientY : null;
+                    if (cx === null || cy === null) return;
+                    const pt = screenToSvgCoords(cx, cy);
+                    const cellSize = config.grid_cell_size;
+                    const xBase = config.padding;
+                    const yBase = computeContentYBase();
+                    const gridX = Math.floor((pt.x - xBase) / cellSize);
+                    const gridY = Math.floor((pt.y - yBase) / cellSize);
+                    const deck = getCurrentDeck();
+                    // If there's a selected room, begin dragging it relative to the touch
+                    if (selectedRoomIndex !== -1 && deck.rooms[selectedRoomIndex]) {
+                        const room = deck.rooms[selectedRoomIndex];
+                        draggedRoomIndex = selectedRoomIndex;
+                        isDragging = true;
+                        dragOffset.x = gridX - (room.position ? room.position[0] : 0);
+                        dragOffset.y = gridY - (room.position ? room.position[1] : 0);
+                        lastDragGridX = gridX;
+                        lastDragGridY = gridY;
+                        render();
+                        // prevent accidental tap-to-place after starting drag
+                        touchTapMoved = true;
+                    } else if (selectedOutlineIndex !== -1 && config.manual_outlines && config.manual_outlines[selectedOutlineIndex]) {
+                        const outline = config.manual_outlines[selectedOutlineIndex];
+                        draggedOutlineIndex = selectedOutlineIndex;
+                        isDragging = true;
+                        dragOffset.x = gridX - (outline.position ? outline.position[0] : 0);
+                        dragOffset.y = gridY - (outline.position ? outline.position[1] : 0);
+                        lastDragGridX = gridX;
+                        lastDragGridY = gridY;
+                        render();
+                        touchTapMoved = true;
+                    }
+                } catch (err) {
+                    console.error('longpress handler error', err);
+                }
+            });
             // Route events to either the new/pan handlers or the legacy (old-index) handlers
             // Also handle Middle Mouse Button (MMB) here so temporary-pan works on first load.
             svg.addEventListener('touchstart', (e) => {
@@ -2062,7 +2086,7 @@
                 if (typeof multiFingerTimerId === 'number') { clearTimeout(multiFingerTimerId); multiFingerTimerId = null; } else { multiFingerTimerId = null; }
 
                 const touchCount = e.touches ? e.touches.length : 0;
-                debugTouch && debugTouch(`touchstart count=${touchCount}`, 1200);
+                
 
                 // Multi-finger (3+) => start toggle-move-mode timer (2s)
                 if (touchCount >= 3) {
@@ -2165,10 +2189,10 @@
                     }, touchHoldDuration);
 
                     if (isMobileMoveMode) {
-                        debugTouch && debugTouch('touchstart -> legacy move-mode', 1200);
+                        
                         legacy_handleTouchStart(e);
                     } else {
-                        debugTouch && debugTouch('touchstart -> pan/new handlers', 1200);
+                        
                         handleTouchStart(e);
                     }
                 }
@@ -2238,15 +2262,7 @@
                         const t = e.changedTouches[0];
                         if (!moved && duration < 400) {
                             // Compute SVG-local coordinates taking pan/zoom into account
-                                const svgEl = document.getElementById('mdsCanvas');
-                                const rect = svgEl.getBoundingClientRect();
-                                const clientX = t.clientX;
-                                const clientY = t.clientY;
-                                // getBoundingClientRect already accounts for CSS transforms
-                                // (translate/scale), so convert screen->SVG logical coords
-                                // by subtracting the rect origin and dividing by the zoom.
-                                const svgX = (clientX - rect.left) / view.zoom;
-                                const svgY = (clientY - rect.top) / view.zoom;
+                                const { x: svgX, y: svgY } = screenToSvgCoords(t.clientX, t.clientY);
                             const cellSize = config.grid_cell_size;
                             const xBase = config.padding;
                             const yBase = computeContentYBase();
@@ -2262,13 +2278,13 @@
                                 room.position = [clampedX, clampedY];
                                 saveToLocalStorage();
                                 render();
-                                debugTouch && debugTouch(`tap-to-place room ${clampedX},${clampedY}`, 1500);
+                                
                             } else if (selectedOutlineIndex !== -1 && config.manual_outlines && config.manual_outlines[selectedOutlineIndex]) {
                                 const outline = config.manual_outlines[selectedOutlineIndex];
                                 outline.position = [clampedX, clampedY];
                                 saveToLocalStorage();
                                 render();
-                                debugTouch && debugTouch(`tap-to-place outline ${clampedX},${clampedY}`, 1500);
+                                
                             }
                         }
                     }
@@ -2296,7 +2312,7 @@
                     view.panX = panStart.startPanX + dx;
                     view.panY = panStart.startPanY + dy;
                     updateTransform();
-                    debugTouch && debugTouch('touchmove -> single-finger pan', 200);
+                    
                     e.preventDefault();
                     return;
                 }
@@ -2313,7 +2329,7 @@
                         view.panY = twoFingerPanStart.startPanY + deltaY;
                         updateTransform();
                     }
-                    debugTouch && debugTouch('touchmove -> two-finger pan', 200);
+                    
                     e.preventDefault();
                     return;
                 }
@@ -2503,6 +2519,35 @@
             const baselineBottom = GRID_HEADER_BASE - 20; // original bottom used for rect anchoring
             const extraTop = Math.max(0, headerH - baselineBottom);
             return GRID_HEADER_BASE + extraTop;
+        }
+
+        // Convert screen (clientX, clientY) to SVG-local coordinates reliably
+        // using the SVG CTM. This handles CSS transforms (translate/scale)
+        // and is more robust than manual inversion across devices.
+        function screenToSvgCoords(clientX, clientY) {
+            const svg = document.getElementById('mdsCanvas');
+            if (!svg) return { x: clientX, y: clientY };
+            try {
+                if (typeof svg.createSVGPoint === 'function' && svg.getScreenCTM) {
+                    const pt = svg.createSVGPoint();
+                    pt.x = clientX;
+                    pt.y = clientY;
+                    const ctm = svg.getScreenCTM();
+                    if (ctm) {
+                        const inv = ctm.inverse();
+                        const res = pt.matrixTransform(inv);
+                        return { x: res.x, y: res.y };
+                    }
+                }
+            } catch (err) {
+                // fallthrough to fallback
+            }
+            // Fallback: best-effort manual inversion (older browsers/devices)
+            const rect = svg.getBoundingClientRect();
+            return {
+                x: (clientX - rect.left) / (view.zoom || 1) - (view.panX || 0),
+                y: (clientY - rect.top) / (view.zoom || 1) - (view.panY || 0)
+            };
         }
 
         // Move-button progress (used for three-finger hold). We render progress
@@ -3853,14 +3898,9 @@
         // Drag and Drop Functions
         function handleMouseDown(event) {
             const deck = getCurrentDeck();
-            const svg = document.getElementById('mdsCanvas');
-            const rect = svg.getBoundingClientRect();
-            const mouseX = event.clientX - rect.left;
-            const mouseY = event.clientY - rect.top;
-            // Convert from screen (transformed) coords back to SVG logical coords
-            // (legacy behavior: invert scale only; pan is handled by bounding rect).
-            const svgX = mouseX / view.zoom;
-            const svgY = mouseY / view.zoom;
+            const pt = screenToSvgCoords(event.clientX, event.clientY);
+            const svgX = pt.x;
+            const svgY = pt.y;
 
             // If in pan mode, start panning instead of initiating drag on objects
             if (panMode && !isMobileMoveMode) {
@@ -3896,6 +3936,7 @@
                         const [rx, ry] = room.position;
                         dragOffset.x = gridX - rx;
                         dragOffset.y = gridY - ry;
+                        
                         return;
                     }
                 }
@@ -3909,6 +3950,7 @@
                         const [ox, oy] = outline.position;
                         dragOffset.x = gridX - ox;
                         dragOffset.y = gridY - oy;
+                        
                         return;
                     }
                 }
@@ -3934,6 +3976,7 @@
                         renderRoomList();
                         renderOutlineList();
                         render();
+                        
                         return;
                     }
                 }
@@ -3987,12 +4030,9 @@
             if (!isDragging) return;
             
             const deck = getCurrentDeck();
-            const svg = document.getElementById('mdsCanvas');
-            const rect = svg.getBoundingClientRect();
-            const mouseX = event.clientX - rect.left;
-            const mouseY = event.clientY - rect.top;
-            const svgX = mouseX / view.zoom;
-            const svgY = mouseY / view.zoom;
+            const pt = screenToSvgCoords(event.clientX, event.clientY);
+            const svgX = pt.x;
+            const svgY = pt.y;
             
             const cellSize = config.grid_cell_size;
             const xBase = config.padding;
@@ -4019,6 +4059,7 @@
                 const newY = Math.max(0, Math.min(gridY - dragOffset.y, deck.grid_height - room.size[1]));
                 room.position = [newX, newY];
                 render();
+                
             }
         }
 
@@ -4182,22 +4223,143 @@
             if (!isMobileMoveMode) {
                 return;
             }
-            // Route to legacy handler to conclude any drag of the selected
-            // item so that mobile semantics (selected-only) are preserved.
-            const mouseEvent = new MouseEvent('mouseup', {});
-            legacy_handleMouseUp(mouseEvent);
+            // Route to mobile move-mode end handler to conclude any drag of
+            // the selected item. Use our dedicated mobile handlers to avoid
+            // subtle differences with legacy synthetic MouseEvents.
+            mobileMoveTouchEnd(event);
         }
 
         // Legacy (old-index) drag and touch handlers (kept separate)
+        // Dedicated mobile move-mode handlers (single-finger semantics)
+        function mobileMoveTouchStart(event) {
+            if (!isMobileMoveMode) return;
+            event.preventDefault();
+            const touch = event.touches && event.touches[0];
+            if (!touch) return;
+
+            const { x: svgX, y: svgY } = screenToSvgCoords(touch.clientX, touch.clientY);
+
+            const cellSize = config.grid_cell_size;
+            const xBase = config.padding;
+            const yBase = computeContentYBase();
+            const gridX = Math.floor((svgX - xBase) / cellSize);
+            const gridY = Math.floor((svgY - yBase) / cellSize);
+
+            const deck = getCurrentDeck();
+
+            // Do NOT start dragging immediately on touchstart. Instead, allow
+            // a short movement or a long-press to initiate a drag. This keeps
+            // quick taps as tap-to-place while enabling hold+drag semantics.
+            // Store nothing here — `mobileMoveTouchMove` or the `longpress`
+            // handler will start the drag when appropriate.
+        }
+
+        function mobileMoveTouchMove(event) {
+            if (!isMobileMoveMode) return;
+            event.preventDefault();
+            const touch = event.touches && event.touches[0];
+            if (!touch) return;
+
+            // If not dragging yet, start drag on movement threshold so quick taps still
+            // count as tap-to-place. Also support longpress-based start via the
+            // `longpress` handler defined during setup.
+            const moveDist = Math.hypot(touch.clientX - touchTapStartX, touch.clientY - touchTapStartY);
+            const cellSize = config.grid_cell_size;
+            const xBase = config.padding;
+            const yBase = computeContentYBase();
+            const { x: svgX, y: svgY } = screenToSvgCoords(touch.clientX, touch.clientY);
+            const gridX = Math.floor((svgX - xBase) / cellSize);
+            const gridY = Math.floor((svgY - yBase) / cellSize);
+
+            const deck = getCurrentDeck();
+
+            if (!isDragging) {
+                // Start dragging selected room/outline when finger moves enough
+                if (moveDist > 8) {
+                    touchTapMoved = true;
+                    // Cancel any pending long-press
+                    try { if (longPressTimerId) { clearTimeout(longPressTimerId); } longPressTimerId = null; } catch (err) {}
+
+                    if (selectedRoomIndex !== -1 && deck.rooms[selectedRoomIndex]) {
+                        const room = deck.rooms[selectedRoomIndex];
+                        if (room.position && room.size) {
+                            draggedRoomIndex = selectedRoomIndex;
+                            isDragging = true;
+                            dragOffset.x = gridX - room.position[0];
+                            dragOffset.y = gridY - room.position[1];
+                            lastDragGridX = gridX;
+                            lastDragGridY = gridY;
+                            render();
+                            return;
+                        }
+                    }
+
+                    if (selectedOutlineIndex !== -1 && config.manual_outlines && config.manual_outlines[selectedOutlineIndex]) {
+                        const outline = config.manual_outlines[selectedOutlineIndex];
+                        if (outline.position && outline.size) {
+                            draggedOutlineIndex = selectedOutlineIndex;
+                            isDragging = true;
+                            dragOffset.x = gridX - outline.position[0];
+                            dragOffset.y = gridY - outline.position[1];
+                            lastDragGridX = gridX;
+                            lastDragGridY = gridY;
+                            render();
+                            return;
+                        }
+                    }
+                    return;
+                }
+                // Not moved enough yet; nothing to do
+                return;
+            }
+
+            // We're actively dragging: only update when the finger moved into a
+            // different grid cell to avoid redundant updates/renders.
+            if (draggedOutlineIndex !== -1) {
+                if (gridX === lastDragGridX && gridY === lastDragGridY) return;
+                const outline = config.manual_outlines[draggedOutlineIndex];
+                const newX = gridX - dragOffset.x;
+                const newY = gridY - dragOffset.y;
+                outline.position = [newX, newY];
+                lastDragGridX = gridX;
+                lastDragGridY = gridY;
+                render();
+                return;
+            }
+
+            if (draggedRoomIndex !== -1) {
+                if (gridX === lastDragGridX && gridY === lastDragGridY) return;
+                const room = deck.rooms[draggedRoomIndex];
+                const newX = Math.max(0, Math.min(gridX - dragOffset.x, deck.grid_width - room.size[0]));
+                const newY = Math.max(0, Math.min(gridY - dragOffset.y, deck.grid_height - room.size[1]));
+                room.position = [newX, newY];
+                lastDragGridX = gridX;
+                lastDragGridY = gridY;
+                render();
+            }
+        }
+
+        function mobileMoveTouchEnd(event) {
+            if (!isMobileMoveMode) return;
+            // If we were dragging, finish drag
+            if (isDragging) {
+                isDragging = false;
+                draggedRoomIndex = -1;
+                draggedOutlineIndex = -1;
+                saveToLocalStorage();
+                renderRoomList();
+                renderOutlineList();
+                // Reset last grid cell tracker
+                lastDragGridX = null;
+                lastDragGridY = null;
+            }
+        }
+
         function legacy_handleMouseDown(event) {
             const deck = getCurrentDeck();
-            const svg = document.getElementById('mdsCanvas');
-            const rect = svg.getBoundingClientRect();
-            const mouseX = event.clientX - rect.left;
-            const mouseY = event.clientY - rect.top;
-            // Convert from screen (transformed) coords back to SVG logical coords
-            const svgX = mouseX / view.zoom;
-            const svgY = mouseY / view.zoom;
+            const pt = screenToSvgCoords(event.clientX, event.clientY);
+            const svgX = pt.x;
+            const svgY = pt.y;
 
             // Convert to grid coordinates (accounting for zoom/pan)
             const cellSize = config.grid_cell_size;
@@ -4301,12 +4463,9 @@
             if (!isDragging) return;
             
             const deck = getCurrentDeck();
-            const svg = document.getElementById('mdsCanvas');
-            const rect = svg.getBoundingClientRect();
-            const mouseX = event.clientX - rect.left;
-            const mouseY = event.clientY - rect.top;
-            const svgX = mouseX / view.zoom;
-            const svgY = mouseY / view.zoom;
+            const pt = screenToSvgCoords(event.clientX, event.clientY);
+            const svgX = pt.x;
+            const svgY = pt.y;
 
             const cellSize = config.grid_cell_size;
             const xBase = config.padding;
@@ -4344,6 +4503,7 @@
                 saveToLocalStorage();
                 renderRoomList();
                 renderOutlineList();
+                
             }
         }
 
@@ -4355,11 +4515,9 @@
             
             event.preventDefault();
             const touch = event.touches[0];
-            const mouseEvent = new MouseEvent('mousedown', {
-                clientX: touch.clientX,
-                clientY: touch.clientY
-            });
-            legacy_handleMouseDown(mouseEvent);
+            // Route to the dedicated mobile move-mode start handler which
+            // operates directly on touch coordinates (avoids synthetic MouseEvents).
+            mobileMoveTouchStart(event);
         }
 
         function legacy_handleTouchMove(event) {
@@ -4370,11 +4528,8 @@
             
             event.preventDefault();
             const touch = event.touches[0];
-            const mouseEvent = new MouseEvent('mousemove', {
-                clientX: touch.clientX,
-                clientY: touch.clientY
-            });
-            legacy_handleMouseMove(mouseEvent);
+            // Prefer mobileMoveTouchMove for single-finger move-mode dragging
+            mobileMoveTouchMove(event);
         }
 
         function legacy_handleTouchEnd(event) {
@@ -4384,8 +4539,9 @@
             }
             
             event.preventDefault();
-            const mouseEvent = new MouseEvent('mouseup', {});
-            legacy_handleMouseUp(mouseEvent);
+            // Keep legacy path for completeness, but prefer mobile handlers
+            // when move-mode is active and touch originates from the canvas.
+            mobileMoveTouchEnd(event);
         }
 
         // Manual Outline Functions
