@@ -863,6 +863,7 @@
             </div>
             <div class="modal-footer" id="modalFooter">
                 <button class="btn btn-danger" id="modalDeleteBtn" onclick="modalDelete()">🗑️ Delete</button>
+                <button class="btn btn-secondary" id="modalDuplicateBtn" style="display:none;" onclick="modalDuplicate()">🔁 Duplicate</button>
                 <button class="btn" id="modalSaveBtn" onclick="modalSave()">💾 Save</button>
             </div>
         </div>
@@ -934,7 +935,7 @@
                     <li><strong>Width/Height:</strong> Set room dimensions in grid cells (1-30)</li>
                     <li><strong>Background Color:</strong> Choose room color from palette picker</li>
                     <li><strong>Font Color:</strong> Set text color independently from background</li>
-                    <li><strong>Font Size:</strong> Customize text size per room (8-32px)</li>
+                    <li><strong>Font Size:</strong> Customize text size per room (minimum 8px; no maximum)</li>
                     <li><strong>Font Offset X/Y:</strong> Fine-tune text positioning within the room</li>
                     <li><strong>Rotation:</strong> Rotate rooms 0-360° using the slider (updates live!)</li>
                     <li><strong>Drag & Drop:</strong> Drag rooms from the list onto the canvas grid</li>
@@ -1847,6 +1848,8 @@
             try {
                 // Include custom palette in config
                 config.custom_palette = COLOR_PALETTES.custom;
+                // Sanitize objects before persisting
+                sanitizeConfigObjects();
                 localStorage.setItem('mds_config', JSON.stringify(config));
             } catch (error) {
                 console.error('Failed to save to localStorage:', error);
@@ -1866,6 +1869,9 @@
                     if (config.custom_palette) {
                         COLOR_PALETTES.custom = config.custom_palette;
                     }
+
+                    // Sanitize any loaded data (fix NaN, missing positions/sizes)
+                    sanitizeConfigObjects();
                     
                     // Ensure color_palette is set
                     if (!config.color_palette) {
@@ -2730,8 +2736,10 @@
             () => {
                 // Add callback
                 const roomName = document.getElementById('newRoomName').value;
-                const width = parseInt(document.getElementById('newRoomWidth').value);
-                const height = parseInt(document.getElementById('newRoomHeight').value);
+                let width = parseInt(document.getElementById('newRoomWidth').value);
+                let height = parseInt(document.getElementById('newRoomHeight').value);
+                if (!isFinite(width) || isNaN(width) || width < 1) width = 1;
+                if (!isFinite(height) || isNaN(height) || height < 1) height = 1;
                 const color = getRoomColor(roomName);
                 
                 getCurrentDeck().rooms.push({
@@ -2854,7 +2862,7 @@
                 { id: 'roomHeight', label: 'Height (grid cells)', type: 'number', value: room.size ? room.size[1] : 2, min: 1, max: 30 },
                 { id: 'roomColor', label: 'Background Color', type: 'color', value: room.color },
                 { id: 'roomFontColor', label: 'Font Color', type: 'color', value: room.font_color || '#000000' },
-                { id: 'roomFontSize', label: 'Font Size (px)', type: 'number', value: room.font_size || 14, min: 8, max: 32 },
+                { id: 'roomFontSize', label: 'Font Size (px)', type: 'number', value: room.font_size || 14, min: 8 },
                 { id: 'roomFontOffsetX', label: 'Font Offset X (px)', type: 'number', value: room.font_offset ? room.font_offset[0] : 0, min: -100, max: 100 },
                 { id: 'roomFontOffsetY', label: 'Font Offset Y (px)', type: 'number', value: room.font_offset ? room.font_offset[1] : 0, min: -100, max: 100 },
                 { id: 'roomRotation', label: 'Rotation (degrees)', type: 'range', value: room.rotation || 0, min: 0, max: 360 }
@@ -2862,10 +2870,14 @@
             () => {
                 // Save callback
                 room.name = document.getElementById('roomName').value;
-                const x = parseInt(document.getElementById('roomX').value);
-                const y = parseInt(document.getElementById('roomY').value);
-                const width = parseInt(document.getElementById('roomWidth').value);
-                const height = parseInt(document.getElementById('roomHeight').value);
+                let x = parseInt(document.getElementById('roomX').value);
+                let y = parseInt(document.getElementById('roomY').value);
+                let width = parseInt(document.getElementById('roomWidth').value);
+                let height = parseInt(document.getElementById('roomHeight').value);
+                if (!isFinite(x) || isNaN(x)) x = 0; if (x < 0) x = 0;
+                if (!isFinite(y) || isNaN(y)) y = 0; if (y < 0) y = 0;
+                if (!isFinite(width) || isNaN(width) || width < 1) width = 1;
+                if (!isFinite(height) || isNaN(height) || height < 1) height = 1;
                 room.position = [x, y];
                 room.size = [width, height];
                 room.area = width * height;
@@ -2876,8 +2888,6 @@
                     parseInt(document.getElementById('roomFontOffsetX').value) || 0,
                     parseInt(document.getElementById('roomFontOffsetY').value) || 0
                 ];
-                room.rotation = parseInt(document.getElementById('roomRotation').value) || 0;
-                
                 saveToLocalStorage();
                 renderRoomList();
                 render();
@@ -2889,7 +2899,10 @@
                 saveToLocalStorage();
                 renderRoomList();
                 render();
-            });
+            },
+            '💾 Save',
+            () => { duplicateRoom(index); }
+            );
             
             // Add live preview for room editing
             setTimeout(() => {
@@ -3543,7 +3556,7 @@
         // Modal Dialog Functions
         let modalContext = null;
 
-        function openModal(title, fields, onSave, onDelete, saveButtonText = '💾 Save') {
+        function openModal(title, fields, onSave, onDelete, saveButtonText = '💾 Save', onDuplicate = null) {
             document.getElementById('modalTitle').textContent = title;
             const modalBody = document.getElementById('modalBody');
             modalBody.innerHTML = '';
@@ -3623,15 +3636,17 @@
                 modalBody.appendChild(fieldDiv);
             });
             
-            // Store callbacks
-            modalContext = { onSave, onDelete };
+            // Store callbacks (include optional duplicate)
+            modalContext = { onSave, onDelete, onDuplicate };
             
             // Update button text
             document.getElementById('modalSaveBtn').textContent = saveButtonText;
             
-            // Show/hide delete button
+            // Show/hide delete & duplicate buttons
             const deleteBtn = document.getElementById('modalDeleteBtn');
             deleteBtn.style.display = onDelete ? 'block' : 'none';
+            const duplicateBtn = document.getElementById('modalDuplicateBtn');
+            if (duplicateBtn) duplicateBtn.style.display = onDuplicate ? 'block' : 'none';
             
             // Reset modal position
             const dialog = document.querySelector('.modal-dialog');
@@ -3704,6 +3719,18 @@
                     modalContext.onDelete();
                     closeModal();
                 }
+            }
+        }
+
+        function modalDuplicate() {
+            if (modalContext && modalContext.onDuplicate) {
+                // Duplicate action shouldn't close the modal automatically
+                try {
+                    modalContext.onDuplicate();
+                } catch (err) {
+                    console.error('Duplicate action failed', err);
+                }
+                closeModal();
             }
         }
 
@@ -4746,10 +4773,14 @@
                 // Save callback
                 outline.name = document.getElementById('outlineName').value || outline.type;
                 outline.type = document.getElementById('outlineType').value;
-                const x = parseInt(document.getElementById('outlineX').value);
-                const y = parseInt(document.getElementById('outlineY').value);
-                const width = parseInt(document.getElementById('outlineWidth').value);
-                const height = parseInt(document.getElementById('outlineHeight').value);
+                let x = parseInt(document.getElementById('outlineX').value);
+                let y = parseInt(document.getElementById('outlineY').value);
+                let width = parseInt(document.getElementById('outlineWidth').value);
+                let height = parseInt(document.getElementById('outlineHeight').value);
+                if (!isFinite(x) || isNaN(x)) x = 0; if (x < 0) x = 0;
+                if (!isFinite(y) || isNaN(y)) y = 0; if (y < 0) y = 0;
+                if (!isFinite(width) || isNaN(width) || width < 1) width = 1;
+                if (!isFinite(height) || isNaN(height) || height < 1) height = 1;
                 outline.position = [x, y];
                 outline.size = [width, height];
                 outline.color = document.getElementById('outlineColor').value;
@@ -4782,8 +4813,8 @@
             },
             '💾 Save',
             () => {
-                // Duplicate callback
-                duplicateOutlineToDecks(index);
+                // Duplicate callback: duplicate into same deck
+                duplicateOutline(index);
             });
             
             // Add live preview for outline editing
@@ -4895,6 +4926,46 @@
             document.getElementById('modalOverlay').classList.add('active');
         }
 
+        function duplicateOutline(index) {
+            try {
+                const outline = config.manual_outlines[index];
+                if (!outline) return;
+                const copy = JSON.parse(JSON.stringify(outline));
+                // Offset position to avoid exact overlap
+                if (!copy.position || !Array.isArray(copy.position)) copy.position = [0,0];
+                copy.position[0] = Math.max(0, (parseInt(copy.position[0]) || 0) + 1);
+                copy.position[1] = Math.max(0, (parseInt(copy.position[1]) || 0) + 1);
+                // By default make it visible on current deck only
+                copy.visible_on_decks = [currentDeckIndex];
+                config.manual_outlines.push(copy);
+                saveToLocalStorage();
+                renderOutlineList();
+                render();
+                alert('Outline duplicated');
+            } catch (err) {
+                console.error('duplicateOutline error', err);
+            }
+        }
+
+        function duplicateRoom(index) {
+            try {
+                const deck = getCurrentDeck();
+                const room = deck.rooms[index];
+                if (!room) return;
+                const copy = JSON.parse(JSON.stringify(room));
+                if (!copy.position || !Array.isArray(copy.position)) copy.position = [0,0];
+                copy.position[0] = Math.max(0, (parseInt(copy.position[0]) || 0) + 1);
+                copy.position[1] = Math.max(0, (parseInt(copy.position[1]) || 0) + 1);
+                deck.rooms.push(copy);
+                saveToLocalStorage();
+                renderRoomList();
+                render();
+                alert('Room duplicated');
+            } catch (err) {
+                console.error('duplicateRoom error', err);
+            }
+        }
+
         // Export Functions
         function exportShip() {
             const json = JSON.stringify(config, null, 2);
@@ -4909,6 +4980,58 @@
 
         function importShip() {
             document.getElementById('shipFileInput').click();
+        }
+
+        // Ensure rooms and outlines have valid numeric positions/sizes and
+        // clamp values to sensible non-negative integers to avoid NaN/render bugs.
+        function sanitizeConfigObjects() {
+            try {
+                if (!config) return;
+                if (Array.isArray(config.decks)) {
+                    config.decks.forEach(deck => {
+                        if (!deck.rooms || !Array.isArray(deck.rooms)) deck.rooms = [];
+                        deck.rooms.forEach(room => {
+                            // Ensure size exists and is integers >= 1
+                            if (!room.size || !Array.isArray(room.size)) room.size = [1,1];
+                            room.size[0] = Math.max(1, parseInt(room.size[0]) || 1);
+                            room.size[1] = Math.max(1, parseInt(room.size[1]) || 1);
+                            // Ensure position exists and is integers >= 0
+                            if (!room.position || !Array.isArray(room.position)) room.position = [0,0];
+                            let px = parseInt(room.position[0]);
+                            let py = parseInt(room.position[1]);
+                            if (!isFinite(px) || isNaN(px)) px = 0;
+                            if (!isFinite(py) || isNaN(py)) py = 0;
+                            room.position[0] = Math.max(0, px);
+                            room.position[1] = Math.max(0, py);
+                            // Recompute area
+                            room.area = (room.size[0] || 1) * (room.size[1] || 1);
+                        });
+                    });
+                }
+
+                if (config.manual_outlines && Array.isArray(config.manual_outlines)) {
+                    config.manual_outlines.forEach(outline => {
+                        if (!outline.size || !Array.isArray(outline.size)) outline.size = [1,1];
+                        outline.size[0] = Math.max(1, parseInt(outline.size[0]) || 1);
+                        outline.size[1] = Math.max(1, parseInt(outline.size[1]) || 1);
+                        if (!outline.position || !Array.isArray(outline.position)) outline.position = [0,0];
+                        let ox = parseInt(outline.position[0]);
+                        let oy = parseInt(outline.position[1]);
+                        if (!isFinite(ox) || isNaN(ox)) ox = 0;
+                        if (!isFinite(oy) || isNaN(oy)) oy = 0;
+                        outline.position[0] = Math.max(0, ox);
+                        outline.position[1] = Math.max(0, oy);
+                        // Ensure visible_on_decks is an array of valid deck indices
+                        if (!outline.visible_on_decks || !Array.isArray(outline.visible_on_decks)) outline.visible_on_decks = [currentDeckIndex];
+                        outline.visible_on_decks = outline.visible_on_decks
+                            .map(v => parseInt(v))
+                            .filter(v => Number.isInteger(v) && v >= 0 && v < (config.decks ? config.decks.length : 0));
+                        if (outline.visible_on_decks.length === 0) outline.visible_on_decks = [currentDeckIndex];
+                    });
+                }
+            } catch (err) {
+                console.error('sanitizeConfigObjects error', err);
+            }
         }
 
         function editCustomPalette() {
