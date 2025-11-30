@@ -359,7 +359,6 @@
             display: block;
             box-sizing: border-box;
             margin: 0;
-            border: 2px solid var(--lcars-blue);
             background: #000;
                 /* The SVG dimensions are authoritative (set via attributes/JS). Avoid
                     CSS-based max-width/max-height which would scale the canvas to the
@@ -1153,12 +1152,12 @@
         <div class="accordion-content collapsed" id="displaySettingsContent">
         <div class="control-group">
             <label>Grid Width</label>
-            <input type="number" id="gridWidth" value="10" min="5" max="30" />
+            <input type="number" id="gridWidth" value="10" min="1" />
         </div>
 
         <div class="control-group">
             <label>Grid Height</label>
-            <input type="number" id="gridHeight" value="8" min="5" max="30" />
+            <input type="number" id="gridHeight" value="8" min="1" />
         </div>
 
         <div class="control-group">
@@ -2970,6 +2969,10 @@
             bg.setAttribute('width', width);
             bg.setAttribute('height', height);
             bg.setAttribute('fill', currentPalette.background);
+            // Draw the outer border as an SVG stroke so it always aligns with
+            // the drawn grid/content regardless of CSS transform/viewport quirks.
+            bg.setAttribute('stroke', currentPalette.border || '#9999FF');
+            bg.setAttribute('stroke-width', 2);
             svg.appendChild(bg);
 
             // yBase for content below header: shift down by extraTop if needed
